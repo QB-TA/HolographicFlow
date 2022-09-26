@@ -170,6 +170,23 @@ def do_plot(flow, epoch_idx):
 
     flow.train(True)
 
+def plot_phi_dist(flow, name):
+    #Plotting field distribution in complex plane
+
+    flow.train(False)
+
+    qft_config = flow.sample(1)[0]
+    phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
+    phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
+
+    plt.scatter(phi_real, phi_imag)
+    plt.xlabel(r'Re($\phi$)')
+    plt.ylabel(r'Im($\phi$)')
+    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_' + name + '.png')
+    plt.close()
+
+    flow.train(True)
+
 def loss_holography(flow, k, m, lam):
     x, invldj, logprior = flow.sample(args.batch_size, prior=get_prior(temperature=1))
     action_qft = utils.phi4_action(x, k=k, m=m, lam=lam)
@@ -190,22 +207,22 @@ def main():
     #flow.load_state_dict(state['flow'], strict=False)
 
     #QFT coefficients, T=0.5
-    k = 1.
-    m = -196.
-    lam = 25.
+    #k = 1.
+    #m = -196.
+    #lam = 25.
 
     #QFT coefficients, disordered phase
     #k = 0.125
     #m = -199.5
     #lam = 25.0
 
-    #T=0.1
-    #k = 5.0
-    #m = -180.0
-    #lam = 25.0
+    #QFT coefficients, T=0.1
+    k = 5.0
+    m = -180.0
+    lam = 25.0
 
 
-    print('Network depth:', args.depth)
+    my_log('Network depth:' + str(args.depth))
     my_log('Number of parameters in each RG layer: {}'.format(
         [utils.get_nparams(layer) for layer in flow.layers]))
     
@@ -214,7 +231,7 @@ def main():
     #state = {'flow': flow.state_dict()}
     #torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L), args.name + '_untrained_b'+str(args.batch_size)))
 
-    ###########################################################
+    ######################################################
 
     loss_list = []
     start_time = time.time()
@@ -230,16 +247,19 @@ def main():
             orthogonal.append(param)
 
     optimizer = torch.optim.AdamW([{'params':scaling, 'lr':1e-2}, 
-                                 {'params':orthogonal, 'lr':1e-4}]
-                               )
-    #optimizer = torch.optim.AdamW(all_params, lr = 1e-3)
+                                   {'params':orthogonal, 'lr':1e-4}])
 
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
+
+    my_log('\nTraining step 0')
+    my_log('loss =' + str(loss_holography(flow, k, m, lam).item()))
+    my_log(str(scaling))
+    my_log(str(orthogonal))
 
     for epoch_idx in range(1, args.epoch_i+1):
         optimizer.zero_grad()
         
-        loss = loss_holography(flow, k, m, lam) #T=0.5, algebraic liquid phase
+        loss = loss_holography(flow, k, m, lam)
         loss_list.append(loss.item())
 
         loss.backward()
@@ -253,16 +273,13 @@ def main():
         if epoch_idx == 3000: optimizer.param_groups[0]['lr'] = 1e-3
         if epoch_idx == 7000: optimizer.param_groups[0]['lr'] = 1e-4
 
-        if epoch_idx % 1000 == 1:
-            my_log('\nTraining step '+ str(epoch_idx-1))
-            my_log('loss = ' + str(loss_list[epoch_idx-1]))
-            #my_log(str(scaling))
-            #my_log(str(orthogonal))
+        if epoch_idx % 1000 == 0:
+            my_log('Training step '+ str(epoch_idx))
+            my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
+            my_log(str(scaling))
+            my_log(str(orthogonal))
             #my_log(str(flow.reparametrize.mass))
             #my_log(str(flow.reparametrize.kinetic))
-  
-    my_log('\nTraining step ' + str(args.epoch_i))
-    my_log('loss =' + str(loss_holography(flow, k, m, lam).item()))
 
     state = {'flow': flow.state_dict()}
     torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
@@ -270,15 +287,7 @@ def main():
 
     time1 = time.time() - start_time
 
-    qft_config = flow.sample(1)[0]
-    phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
-    phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
-
-    plt.scatter(phi_real, phi_imag)
-    plt.xlabel(r'Re($\phi$)')
-    plt.ylabel(r'Im($\phi$)')
-    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_single_phi_stage_i.png')
-    plt.close()
+    plot_phi_dist(flow, 'stage_i_' + str(args.epoch_i))
 
     ######################################################
 
@@ -297,6 +306,11 @@ def main():
 
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
 
+    my_log('\nTraining step ' + args.epoch_i)
+    my_log('loss =' + str(loss_holography(flow, k, m, lam).item()))
+    my_log(str(flow.reparametrize.mass))
+    my_log(str(flow.reparametrize.kinetic))
+
     for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
         optimizer2.zero_grad()
 
@@ -307,9 +321,9 @@ def main():
         #clip_grad_norm_(params2, args.clip_grad)
         optimizer2.step()
 
-        if epoch_idx % 100 == 1:     
-            my_log('\nTraining step ' + str(epoch_idx-1))
-            my_log('loss = ' + str(loss_list[epoch_idx-1]))
+        if epoch_idx % 1000 == 0:     
+            my_log('\nTraining step ' + str(epoch_idx))
+            my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
             my_log(str(flow.reparametrize.mass))
             my_log(str(flow.reparametrize.kinetic))
     
@@ -317,24 +331,11 @@ def main():
     torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L),
                                           args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
 
-    loss_final = loss_holography(flow, k, m, lam)
-    loss_list.append(loss_final.item())
-    my_log('\nTraining step ' + str(args.epoch_i + args.epoch_ii))
-    my_log('loss = ' + str(loss_list[epoch_idx-1]))
-    #my_log(str(flow.reparametrize.mass))
-    #my_log(str(flow.reparametrize.kinetic))
-
     time2 = time.time() - time1
 
-    qft_config = flow.sample(1)[0]
-    phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
-    phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
+    plot_phi_dist(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
 
-    plt.scatter(phi_real, phi_imag)
-    plt.xlabel(r'Re($\phi$)')
-    plt.ylabel(r'Im($\phi$)')
-    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_single_phi_stage_ii.png')
-    plt.close()
+    ######################################################
 
     my_log('\nStage I Training time: ' + str(time1) + ' sec')
     my_log('Stage II Training time: ' + str(time2 - start_time) + ' sec')
