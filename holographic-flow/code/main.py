@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+
+import os
+import time
+import traceback
+from math import log, sqrt
+import numpy as np
+
+import torch
+from matplotlib import pyplot as plt
+from torch.nn.utils import clip_grad_norm_, weight_norm
+
+import layers
+import sources
+import utils
+from args import args
+from utils import my_log
+from utils_support import my_tight_layout, plot_samples_np 
+from utils import HolographicDistance 
+
+torch.backends.cudnn.benchmark = True
+
+
+def get_prior(temperature=1):
+    if args.prior == 'gaussian':
+        prior = sources.Gaussian([args.nchannels, args.L, args.L],
+                                 scale=temperature)
+    elif args.prior == 'laplace':
+        # Set scale = 1/sqrt(2) to make var = 1
+        prior = sources.Laplace([args.nchannels, args.L, args.L],
+                                scale=temperature / sqrt(2))
+    else:
+        raise ValueError('Unknown prior: {}'.format(args.prior))
+    prior = prior.to(args.device)
+    return prior
+
+
+def build_rnvp(nchannels, kernel_size, nlayers, nresblocks, nmlp, nhidden):
+    core_size = nchannels * kernel_size**2
+    widths = [core_size] + [nhidden] * nmlp + [core_size]
+    net = layers.RNVP(
+        [
+            layers.ResNetReshape(
+                nresblocks,
+                widths,
+                final_scale=True,
+                final_tanh=True,
+            ) for _ in range(nlayers)
+        ],
+        [
+            layers.ResNetReshape(
+                nresblocks,
+                widths,
+                final_scale=True,
+                final_tanh=False,
+            ) for _ in range(nlayers)
+        ],
+        nchannels,
+        kernel_size,
+    )
+    return net
+
+
+def build_arflow(nchannels, kernel_size, nlayers, nresblocks, nmlp, nhidden):
+    assert nhidden % kernel_size**2 == 0
+    channels = [nchannels] + [nhidden // kernel_size**2] * nmlp + [nchannels]
+    width = kernel_size**2
+    net = layers.ARFlowReshape(
+        [
+            layers.MaskedResNet(
+                nresblocks,
+                channels,
+                width,
+                final_scale=True,
+                final_tanh=True,
+            ) for _ in range(nlayers)
+        ],
+        [
+            layers.MaskedResNet(
+                nresblocks,
+                channels,
+                width,
+                final_scale=True,
+                final_tanh=False,
+            ) for _ in range(nlayers)
+        ],
+    )
+    return net
+
+
+def build_ehm(type):
+    net = layers.EHM(
+        layers.Scaling(),
+        layers.Orthogonal(type),
+        layers.Activation()
+    )
+    return net
+
+
+def build_mera():
+    prior = get_prior()
+    indexI, indexJ = layers.mera.mera_indices(args.L, args.kernel_size)
+    reparametrize = layers.CorrelatedGaussian(
+        [args.nchannels, args.L, args.L], indexI, indexJ, mass=1.)
+    _layers = []
+    for i in range(args.depth):
+        if args.subnet == 'rnvp':
+            _layers.append(
+                build_rnvp(
+                    args.nchannels,
+                    args.kernel_size,
+                    args.nlayers_list[i],
+                    args.nresblocks_list[i],
+                    args.nmlp_list[i],
+                    args.nhidden_list[i],
+                ))
+        elif args.subnet == 'ar':
+            _layers.append(
+                build_arflow(
+                    args.nchannels,
+                    args.kernel_size,
+                    args.nlayers_list[i],
+                    args.nresblocks_list[i],
+                    args.nmlp_list[i],
+                    args.nhidden_list[i],
+                ))
+        elif args.subnet == 'ehm':
+            if i % 2 == 0:
+                _layers.append(
+                    build_ehm('disentangler')
+                    )
+            elif i % 2 == 1:
+                _layers.append(
+                    build_ehm('decimator')
+                    )
+            
+        else:
+            raise ValueError('Unknown subnet: {}'.format(args.subnet))
+
+    flow = layers.MERA(_layers, args.L, args.kernel_size, reparametrize, prior)
+    flow = flow.to(args.device)
+
+    return flow
+
+
+def do_plot(flow, epoch_idx):
+    flow.train(False)
+
+    # When using multiple GPUs, each GPU samples batch_size / device_count
+    sample, _ = flow.sample(args.batch_size // args.device_count)
+    my_log('plot min {:.3g} max {:.3g} mean {:.3g} std {:.3g}'.format(
+        sample.min().item(),
+        sample.max().item(),
+        sample.mean().item(),
+        sample.std().item(),
+    ))
+    sample, _ = utils.logit_transform(sample, inverse=True)
+    sample = torch.clamp(sample, 0, 1)
+    sample = sample.permute(0, 2, 3, 1).detach().cpu().numpy()
+
+    fig, axes = plot_samples_np(sample)
+
+    fig.suptitle('{}/{}/epoch{}'.format(args.data, args.net_name, epoch_idx))
+    my_tight_layout(fig)
+    plot_filename = '{}/epoch{}.pdf'.format(args.plot_filename, epoch_idx)
+    utils.ensure_dir(plot_filename)
+    fig.savefig(plot_filename, bbox_inches='tight')
+    fig.clf()
+    plt.close()
+
+    flow.train(True)
+
+def loss_holography(flow, k, m, lam):
+    x, invldj, logprior = flow.sample(args.batch_size, prior=get_prior(temperature=1))
+    action_qft = utils.phi4_action(x, k=k, m=m, lam=lam)
+    loss = action_qft + logprior - invldj / args.L**2
+    loss_mean = loss.mean()
+    utils.check_nan(loss_mean)
+    return loss_mean
+
+def main():
+    start_time = time.time()
+    utils.init_out_dir()
+
+    flow = build_mera()
+    flow.train(True)
+
+    #state = torch.load('{}/{}.state'.format('./saved_model/ehm'+str(args.L), 'test_ortho_sgd_stage_i_b1_10000'),
+    #                   map_location=args.device)
+    #flow.load_state_dict(state['flow'], strict=False)
+
+    #QFT coefficients, T=0.5
+    k = 1.
+    m = -196.
+    lam = 25.
+
+    #QFT coefficients, disordered phase
+    #k = 0.125
+    #m = -199.5
+    #lam = 25.0
+
+    #T=0.1
+    #k = 5.0
+    #m = -180.0
+    #lam = 25.0
+
+
+    print('Network depth:', args.depth)
+    my_log('Number of parameters in each RG layer: {}'.format(
+        [utils.get_nparams(layer) for layer in flow.layers]))
+    
+    print('QFT parameters: k = ' + str(k) + '  |  mass = ' + str(m) + '  |  lambda = ' + str(lam))
+
+    #state = {'flow': flow.state_dict()}
+    #torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L), args.name + '_untrained_b'+str(args.batch_size)))
+
+    ###########################################################
+
+    loss_list = []
+    start_time = time.time()
+    
+    print('\nTRAINING STAGE I')
+
+    scaling = []
+    orthogonal = []
+    for pname, param in flow.named_parameters():
+        if 'scale' in pname: 
+            scaling.append(param)
+        if 'theta' in pname:
+            orthogonal.append(param)
+
+    optimizer = torch.optim.AdamW([{'params':scaling, 'lr':1e-2}, 
+                                 {'params':orthogonal, 'lr':1e-4}]
+                               )
+    #optimizer = torch.optim.AdamW(all_params, lr = 1e-3)
+
+    my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
+
+    for epoch_idx in range(1, args.epoch_i+1):
+        optimizer.zero_grad()
+        
+        loss = loss_holography(flow, k, m, lam) #T=0.5, algebraic liquid phase
+        loss_list.append(loss.item())
+
+        loss.backward()
+        #clip_grad_norm_(scaling, args.clip_grad)
+        #clip_grad_norm_(orthogonal, args.clip_grad)
+        optimizer.step()
+
+        #print(scaling)
+        #print(orthogonal)
+        #optimizer.param_groups[0]['lr'] += (1e-4 - 1e-2) * 2 / args.epoch_i
+        if epoch_idx == 3000: optimizer.param_groups[0]['lr'] = 1e-3
+        if epoch_idx == 7000: optimizer.param_groups[0]['lr'] = 1e-4
+
+        if epoch_idx % 1000 == 1:
+            my_log('\nTraining step '+ str(epoch_idx-1))
+            my_log('loss = ' + str(loss_list[epoch_idx-1]))
+            #my_log(str(scaling))
+            #my_log(str(orthogonal))
+            #my_log(str(flow.reparametrize.mass))
+            #my_log(str(flow.reparametrize.kinetic))
+  
+    my_log('\nTraining step ' + str(args.epoch_i))
+    my_log('loss =' + str(loss_holography(flow, k, m, lam).item()))
+
+    state = {'flow': flow.state_dict()}
+    torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
+                                          args.name + '_stage_i_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
+
+    time1 = time.time() - start_time
+
+    qft_config = flow.sample(1)[0]
+    phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
+    phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
+
+    plt.scatter(phi_real, phi_imag)
+    plt.xlabel(r'Re($\phi$)')
+    plt.ylabel(r'Im($\phi$)')
+    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_single_phi_stage_i.png')
+    plt.close()
+
+    ######################################################
+
+    my_log('\nTRAINING STAGE II')
+
+    for param in flow.parameters():
+        param.requires_grad = False
+    #flow.reparametrize.mass.requires_grad = True
+    flow.reparametrize.kinetic.requires_grad = True
+    torch.nn.init.constant_(flow.reparametrize.kinetic, 0.001)
+    #torch.nn.init.constant_(flow.reparam.mass, 0.1)
+    
+    params2 = [x for x in flow.parameters() if x.requires_grad]
+    optimizer2 = torch.optim.AdamW(params2,
+                                  lr=args.lr)
+
+    my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
+
+    for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
+        optimizer2.zero_grad()
+
+        loss = loss_holography(flow, k, m, lam)
+        loss_list.append(loss.item())
+
+        loss.backward()
+        #clip_grad_norm_(params2, args.clip_grad)
+        optimizer2.step()
+
+        if epoch_idx % 100 == 1:     
+            my_log('\nTraining step ' + str(epoch_idx-1))
+            my_log('loss = ' + str(loss_list[epoch_idx-1]))
+            my_log(str(flow.reparametrize.mass))
+            my_log(str(flow.reparametrize.kinetic))
+    
+    state = {'flow': flow.state_dict()}
+    torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L),
+                                          args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
+
+    loss_final = loss_holography(flow, k, m, lam)
+    loss_list.append(loss_final.item())
+    my_log('\nTraining step ' + str(args.epoch_i + args.epoch_ii))
+    my_log('loss = ' + str(loss_list[epoch_idx-1]))
+    #my_log(str(flow.reparametrize.mass))
+    #my_log(str(flow.reparametrize.kinetic))
+
+    time2 = time.time() - time1
+
+    qft_config = flow.sample(1)[0]
+    phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
+    phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
+
+    plt.scatter(phi_real, phi_imag)
+    plt.xlabel(r'Re($\phi$)')
+    plt.ylabel(r'Im($\phi$)')
+    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_single_phi_stage_ii.png')
+    plt.close()
+
+    my_log('\nStage I Training time: ' + str(time1) + ' sec')
+    my_log('Stage II Training time: ' + str(time2 - start_time) + ' sec')
+    my_log('Total Training time:   ' + str(time.time() - start_time) + ' sec')
+
+
+    plt.plot(np.arange(0, args.epoch_i + args.epoch_ii + 1), loss_list)
+    plt.xlabel('training steps')
+    plt.ylabel('loss')
+    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_loss.png')
+    plt.close()
+
+    """
+    start_time = time.time()
+
+    utils.init_out_dir()
+    last_epoch = utils.get_last_checkpoint_step()
+    if last_epoch >= args.epoch:
+        exit()
+    if last_epoch >= 0:
+        my_log(f'\nCheckpoint found: {last_epoch}\n')
+    else:
+        utils.clear_log()
+    utils.print_args()
+
+    flow = build_mera()
+    flow.train(True)
+    my_log('nparams in each RG layer: {}'.format(
+        [utils.get_nparams(layer) for layer in flow.layers]))
+    my_log(f'Total nparams: {utils.get_nparams(flow)}')
+
+    # Use multiple GPUs
+    if args.cuda and torch.cuda.device_count() > 1:
+        flow = utils.data_parallel_wrap(flow)
+
+    params = [x for x in flow.parameters() if x.requires_grad]
+    optimizer = torch.optim.AdamW(params,
+                                  lr=args.lr,
+                                  weight_decay=args.weight_decay)
+
+    if last_epoch >= 0:
+        utils.load_checkpoint(last_epoch, flow, optimizer)
+
+    train_set, _, _ = utils.load_dataset()
+    train_loader = torch.utils.data.DataLoader(train_set,
+                                               args.batch_size,
+                                               shuffle=True,
+                                               num_workers=4,
+                                               pin_memory=True)
+
+    init_time = time.time() - start_time
+    my_log(f'init_time = {init_time:.3f}')
+
+    my_log('Training...')
+    start_time = time.time()
+    for epoch_idx in range(last_epoch + 1, args.epoch + 1):
+        for batch_idx, (x, _) in enumerate(train_loader):
+            optimizer.zero_grad()
+
+            x = x.to(args.device)
+            x, ldj_logit = utils.logit_transform(x)
+            log_prob = flow.log_prob(x)
+            loss = -(log_prob + ldj_logit) / (args.nchannels * args.L**2)
+            loss_mean = loss.mean()
+            loss_std = loss.std()
+
+            utils.check_nan(loss_mean)
+
+            loss_mean.backward()
+            if args.clip_grad:
+                clip_grad_norm_(params, args.clip_grad)
+            optimizer.step()
+
+            if args.print_step and batch_idx % args.print_step == 0:
+                bit_per_dim = (loss_mean.item() + log(256)) / log(2)
+                my_log(
+                    'epoch {} batch {} bpp {:.8g} loss {:.8g} +- {:.8g} time {:.3f}'
+                    .format(
+                        epoch_idx,
+                        batch_idx,
+                        bit_per_dim,
+                        loss_mean.item(),
+                        loss_std.item(),
+                        time.time() - start_time,
+                    ))
+
+        if (args.out_filename and args.save_epoch
+                and epoch_idx % args.save_epoch == 0):
+            state = {
+                'flow': flow.state_dict(),
+                'optimizer': optimizer.state_dict(),
+            }
+            torch.save(state, f'{args.out_filename}_save/{epoch_idx}.state')
+
+            last_epoch = epoch_idx - args.save_epoch
+            if (last_epoch > 0 and args.keep_epoch
+                    and last_epoch % args.keep_epoch != 0):
+                os.remove(f'{args.out_filename}_save/{last_epoch}.state')
+
+        if (args.plot_filename and args.plot_epoch
+                and epoch_idx % args.plot_epoch == 0):
+            with torch.no_grad():
+                do_plot(flow, epoch_idx)
+    """
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()
