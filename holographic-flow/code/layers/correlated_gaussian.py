@@ -1,8 +1,5 @@
-from turtle import down, left, right
 import torch
 from torch import nn
-from math import log2
-import numpy as np
 
 from args import args
 
@@ -11,14 +8,6 @@ class CorrelatedGaussian(nn.Module):
     def __init__(self, nvars, indexI, indexJ, mass=1.):
         super().__init__()
         self.nvars = nvars
-        #kinetic = torch.zeros(self.nvars + [3])
-        #kinetic[:,:,:,0] = 0.5
-        #self.kinetic = nn.Parameter(kinetic, requires_grad=False)        
-        #self.offdiag = nn.ParameterList()
-        #for _ in range(int(log2(min(H,W)))):
-        #    self.offdiag.append(nn.Parameter(torch.zeros([C,H,W,2]), requires_grad=False))
-        #    H = int(H/2)
-        #    W = int(W/2)
         self.indexI, self.indexJ = self.seperate_scales(indexI, indexJ)
         self.mass = nn.Parameter(torch.tensor(mass), requires_grad=False)
         self.kinetic = nn.Parameter(torch.zeros([len(self.indexI), 2]), requires_grad=False)
@@ -188,12 +177,16 @@ class CorrelatedGaussian(nn.Module):
     def reparametrize(self, z):
         oldshape = z.shape
         inv_ldj = z.new_zeros(z.shape[0]).real
+
         L = self.precision_matrix()
         L = torch.linalg.inv(L)
         L = torch.linalg.cholesky(L)
+
         z = z.reshape((z.shape[0], -1))
         z = z @ L.T
         z = z.reshape(oldshape)
+
         _, logdet = torch.linalg.slogdet(L)
         inv_ldj = inv_ldj + logdet
+        
         return z, inv_ldj
