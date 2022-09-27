@@ -61,7 +61,7 @@ class HolographicDistance():
 
 
     def radial_distance():
-        
+        #TODO: implement
         return
 
     def two_point_fct(self, i1, j1, i2, j2):

@@ -125,50 +125,6 @@ class CorrelatedGaussian(nn.Module):
 
 
                     prec [c][i][j] [c][i][j] = self.kinetic[l][0].abs() + self.mass.abs()
-                    
-                    """
-                    prec [c][i][j] [c][i][jright] = -self.kinetic[l][1].abs()
-                    prec [c][i][j] [c][idown][j] = -self.kinetic[l][2].abs()
-                    prec [c][i][j] [c][i][jleft] = -self.kinetic[l][1].abs()
-                    prec [c][i][j] [c][iup][j] = -self.kinetic[l][2].abs()
-                    
-                    
-                    if self.is_neighbour(l, idown, jright):
-                        prec [c][i][j] [c][idown][jright] = -self.kinetic[l][3].abs()
-                    if self.is_neighbour(l, iup, jright):
-                        prec [c][i][j] [c][iup][jright] = -self.kinetic[l][3].abs()
-                    if self.is_neighbour(l, iup, jleft):
-                        prec [c][i][j] [c][iup][jleft] = -self.kinetic[l][3].abs()
-                    if self.is_neighbour(l, idown, jleft):
-                        prec [c][i][j] [c][iup][jleft] = -self.kinetic[l][3].abs()
-                    
-        
-        # all bonds without translation invariance
-        for l, (indexI, indexJ) in enumerate(zip(self.indexI[::2], self.indexJ[::2])):
-            d = int(2**l)
-            for c in range(C):
-                for m in range(indexI.shape[0]):
-                    for n in range(indexI.shape[1]):
-                        i = indexI[m][n]
-                        j = indexJ[m][n]
-                        if d == 1:
-                            prec [c][i][j] [c][i][j] = self.diag[c][i][j].abs() + self.mass.abs()
-
-                        prec [c][i][j] [c][i][(j+d)%W] = -self.offdiag[l] [c][int(i/d)][int(j/d)][0].abs()
-                        prec [c][i][j] [c][(i+d)%H][j] = -self.offdiag[l] [c][int(i/d)][int(j/d)][1].abs()
-
-                        prec [c][i][j] [c][i][(j+W-d)%W] = -self.offdiag[l] [c][int(i/d)][int(((j+W-d)%W)/d)][0].abs()
-                        prec [c][i][j] [c][(i+H-d)%H][j] = -self.offdiag[l] [c][int(((i+H-d)%H)/d)][int(j/d)][1].abs()
-       
-        for c in range(C):
-            for i in range(H):
-                for j in range(W):
-                    prec [c][i][j] [c][i][j] = self.kinetic[c][i][j][0].abs() + self.mass.abs()
-                    prec [c][i][j] [c][i][(j+1)%W] = -self.kinetic[c][i][j][1].abs()
-                    prec [c][i][j] [c][(i+1)%H][j] = -self.kinetic[c][i][j][2].abs()
-                    prec [c][i][j] [c][i][(j+W-1)%W] = -self.kinetic[c][i][(j+W-1)%W][1].abs()
-                    prec [c][i][j] [c][(i+H-1)%H][j] = -self.kinetic[c][(i+H-1)%H][j][2].abs()
-        """
 
         prec = torch.reshape(prec, (C*H*W, C*H*W))
 
@@ -188,5 +144,5 @@ class CorrelatedGaussian(nn.Module):
 
         _, logdet = torch.linalg.slogdet(L)
         inv_ldj = inv_ldj + logdet
-        
+
         return z, inv_ldj

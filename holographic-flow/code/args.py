@@ -91,6 +91,12 @@ group.add_argument(
     default='',
     help='name of the network',
 )
+group.add_argument(
+    '--T',
+    type=float,
+    default='0.5',
+    help='temperature of the QFT',
+)
 
 group = parser.add_argument_group('optimizer parameters')
 group.add_argument(
