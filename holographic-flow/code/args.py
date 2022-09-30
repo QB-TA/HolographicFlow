@@ -52,7 +52,7 @@ group.add_argument(
     '--unitary',
     type=str,
     default='linear',
-    choices=['linear', 'eqvar', 'eqvar_sp', 'cayley', 'exp', 'o2_stack'],
+    choices=['linear', 'emlp', 'emlp_sp', 'cayley', 'exp', 'o2_stack'],
     help='type of transformation for decimator and disentanglers',
 )
 group.add_argument(
@@ -115,7 +115,7 @@ group.add_argument(
 group.add_argument(
     '--T',
     type=float,
-    default=0.5,
+    default=0.1,
     help='temperature of the QFT',
 )
 

@@ -249,7 +249,7 @@ def plot_two_point_fct(flow, name=''):
 def loss_holography(flow, k, m, lam):
     x, logprior, invldj = flow.sample(args.batch_size, prior=get_prior(temperature=1))
     action_qft = utils.phi4_action(x, k, m, lam)
-    loss = action_qft + logprior - invldj / args.L**2
+    loss = (action_qft + logprior - invldj) / args.L**2
     loss_mean = loss.mean()
     utils.check_nan(loss_mean)
     return loss_mean

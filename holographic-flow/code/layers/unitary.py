@@ -86,11 +86,12 @@ class Unitary(nn.Module):
             if args.complex:
                 self.unitary.to(torch.complex64)
 
-        if args.unitary == 'eqvar' or args.unitary == 'eqvar_sp':
-            if args.unitary == 'eqvar': 
+        if args.unitary == 'emlp' or args.unitary == 'emlp_sp':
+            #uses the EMLP package to make an Equivariant Linear Layer
+            if args.unitary == 'emlp': 
                 if args.complex: G = U(n)
                 else: G = O(n)
-            if args.unitary == 'eqvar_sp':
+            if args.unitary == 'emlp_sp':
                 if args.complex: G = SU(n)
                 else: G = SO(n)
             self.unitary = EquivarLinear(Vector(G), Vector(G))
