@@ -65,6 +65,6 @@ class HolographicDistance():
         return
 
     def two_point_fct(self, i1, j1, i2, j2):
-        qft_config = self.flow.sample(1)[0]
+        qft_config = self.flow.sample(64)[0]
         two_point = qft_config[:, 0, i1, j1].conj() * qft_config[:, 0, i2, j2]
         return two_point.mean()
