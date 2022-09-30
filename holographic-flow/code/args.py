@@ -52,7 +52,7 @@ group.add_argument(
     '--unitary',
     type=str,
     default='linear',
-    choices=['linear', 'u_eqvar', 'su_eqvar', 'cayley', 'mat_exp', 'o2_stack'],
+    choices=['linear', 'u_eqvar', 'su_eqvar', 'cayley', 'exp', 'o2_stack'],
     help='type of transformation for decimator and disentanglers',
 )
 group.add_argument(

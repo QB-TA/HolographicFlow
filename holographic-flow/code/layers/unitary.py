@@ -54,14 +54,14 @@ class Unitary(nn.Module):
         n = args.kernel_size ** 2
         
         #Implements a general O(4) trafo.
-        if args.unitary == 'linear' or args.unitary == 'cayley' or args.unitary == 'mat_exp':
+        if args.unitary == 'linear' or args.unitary == 'cayley' or args.unitary == 'exp':
             self.unitary = nn.Linear(n, n)
             
             if args.unitary == 'cayley':
                 parametrize.register_parametrization(self.unitary, "weight", Skew())
                 parametrize.register_parametrization(self.unitary, "weight", CayleyMap(n))
             
-            if args.unitary == 'mat_exp':
+            if args.unitary == 'exp':
                 parametrize.register_parametrization(self.unitary, "weight", Skew())
                 parametrize.register_parametrization(self.unitary, "weight", MatrixExponential())
             
