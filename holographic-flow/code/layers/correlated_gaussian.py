@@ -168,7 +168,7 @@ class CorrelatedGaussian(nn.Module):
         
         return cov
 
-    def reparametrize(self, z):
+    def forward(self, z):
         H = self.nvars[1]
         W = self.nvars[2]
         inv_ldj = z.new_zeros(z.shape[0]).real
@@ -195,3 +195,33 @@ class CorrelatedGaussian(nn.Module):
 
         inv_ldj = inv_ldj + logdet
         return z, inv_ldj
+
+    def inverse(self, x):
+        H = self.nvars[1]
+        W = self.nvars[2]
+        ldj = x.new_zeros(x.shape[0]).real
+        oldshape = x.shape
+        x = x.reshape((x.shape[0], -1))
+
+        if args.reparametrize == 'nearest_neighbor':
+        #Cholesky decomposition in nearest neighbour approach
+            L = self.precision_matrix()
+            L = torch.linalg.inv(L)
+            L = torch.linalg.cholesky(L)
+            L = torch.linalg.inv(L)
+            x = x @ L.T
+            _, logdet = torch.linalg.slogdet(L)
+            
+        if args.reparametrize == 'positive_definite':
+        #General reparametrization with positive definite covariance
+            x = x.reshape((x.shape[0], -1))
+            chol_inv = torch.linalg.inv(self.cholesky.weight)
+            x = x @ chol_inv.T
+            _, logdet = torch.linalg.slogdet(self.cholesky.weight)
+
+        x = x.reshape(oldshape)
+        if args.complex and self.nvars[0] == 2:
+            x = torch.cat([x.real, x.imag], dim=1)
+
+        ldj = ldj + logdet
+        return x, ldj

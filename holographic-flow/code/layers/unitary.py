@@ -1,3 +1,4 @@
+from audioop import bias
 import torch
 from torch import nn
 import math
@@ -55,7 +56,7 @@ class Unitary(nn.Module):
         
         #Implements a general O(4) trafo.
         if args.unitary == 'linear' or args.unitary == 'cayley' or args.unitary == 'exp':
-            self.unitary = nn.Linear(n, n)
+            self.unitary = nn.Linear(n, n, bias=False)
             
             if args.unitary == 'cayley':
                 parametrize.register_parametrization(self.unitary, "weight", Skew())
@@ -77,7 +78,7 @@ class Unitary(nn.Module):
                                        [0., 1., 0., 0.],
                                        [0., 0., 0., 1.]])
 
-            nn.init.zeros_(self.unitary.bias)
+            #nn.init.zeros_(self.unitary.bias)
             if args.unitary == 'linear':
                 self.unitary.weight = nn.Parameter(w_init)
             #if args.unitary == 'cayley' and self.type == 'decimator':
@@ -95,6 +96,8 @@ class Unitary(nn.Module):
                 if args.complex: G = SU(n)
                 else: G = SO(n)
             self.unitary = EquivarLinear(Vector(G), Vector(G))
+            nn.init.zeros_(self.unitary.bias)
+            self.unitary.bias.requires_grad = False
             if args.complex:
                 self.unitary.to(torch.complex64)
 
@@ -166,38 +169,38 @@ class Unitary(nn.Module):
     
     def forward(self, x):
         ldj = x.new_zeros(x.shape[0])
-        if self.type == 'decimator':
-            x = self._forward('one', self.theta1, x)
-            x = self._forward('two', self.theta2, x)
-        if self.type == 'disentangler':
-            x = self._forward('two', self.theta1, x)
-            x = self._forward('two', self.theta2, x)
+        if args.unitary == 'o2_stack':
+            if self.type == 'decimator':
+                x = self._forward('one', self.theta1, x)
+                x = self._forward('two', self.theta2, x)
+            if self.type == 'disentangler':
+                x = self._forward('two', self.theta1, x)
+                x = self._forward('two', self.theta2, x)
+        else:
+            oldshape = x.shape
+            x = x.view(x.shape[0], -1)
+            inv_weight = torch.linalg.inv(self.unitary.weight)
+            x = x @ inv_weight.T
+            x = x.view(oldshape)
+            _, logdet = torch.linalg.slogdet(inv_weight)
+            ldj += logdet
         return x, ldj
     
     def inverse(self, z):
+        inv_ldj = z.new_zeros(z.shape[0])
+
         if args.unitary == 'o2_stack':
-            inv_ldj = z.new_zeros(z.shape[0])
             if self.type == 'decimator':
                 z = self._inverse('two', self.theta2, z)
                 z = self._inverse('one', self.theta1, z)
             if self.type == 'disentangler':
                 z = self._inverse('two', self.theta2, z)
                 z = self._inverse('two', self.theta1, z)
-
         else:
-            inv_ldj = z.new_zeros(z.shape[0])
             oldshape = z.shape
             z = z.view(z.shape[0], -1)
             z = self.unitary(z)
             z = z.view(oldshape)
-
+            _, logdet = torch.linalg.slogdet(self.unitary.weight)
+            inv_ldj += logdet
         return z, inv_ldj
-    
-    #def forward(self, x): #general O(4)
-    #    ldj = x.new_zeros(x.shape[0])
-    #    oldshape = x.shape
-    #    x = x.view(x.shape[0], -1)
-    #    x = self.unitary(x) #TODO: invert the linear layer
-    #    x = x.view(oldshape)
-    #    return x, ldj
-    

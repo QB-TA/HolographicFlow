@@ -23,13 +23,13 @@ class Flow(nn.Module):
         z = prior.sample(batch_size)
         logp = prior.log_prob(z)
         if self.reparametrize != None:
-            z, logp_ = self.reparametrize.reparametrize(z)
+            z, logp_ = self.reparametrize.inverse(z)
         x, inv_ldj = self.inverse(z)
         if self.reparametrize != None:
             inv_ldj = logp_+inv_ldj
         if args.complex and x.dtype == torch.float32:
             x = torch.complex(x[:,0,:,:], x[:,1:,:])
-        return x, logp, inv_ldj
+        return x, logp, inv_ldj, z
 
     def log_prob(self, x):
         z, logp = self.forward(x)
