@@ -179,13 +179,15 @@ def plot_phi_complex_plane(flow, row=1, col=1, name=''):
     qft_config = flow.sample(n)[0]
 
     if row == 1 and col == 1:
+        phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
+        phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
         plt.figure(figsize=(10, 10), dpi=150)
-        plt.scatter(phi_real, phi_imag)   
         plt.xlabel(r'Re($\phi$)')
         plt.ylabel(r'Im($\phi$)')
         plt.axes().set_aspect('equal')
         plt.xlim((-2.1, 2.1))
         plt.ylim((-2.1, 2.1))
+        plt.scatter(phi_real[0], phi_imag[0], s=1)   
     
     else:
         phi_real = []
@@ -193,11 +195,10 @@ def plot_phi_complex_plane(flow, row=1, col=1, name=''):
         for i in range(row*col):
             phi_real.append(qft_config[i,0,:,:].real.flatten().cpu().detach().numpy())
             phi_imag.append(qft_config[i,0,:,:].imag.flatten().cpu().detach().numpy())
-
         fig, axs = plt.subplots(row, col, sharex=True, sharey=True, figsize=(10,10), dpi=150)
         for i in range(row):
             for j in range(col):
-                axs[i, j].scatter(phi_real[i*row+j], phi_imag[i*row+j])
+                axs[i, j].scatter(phi_real[i*row+j], phi_imag[i*row+j], s=1)
 
     plt.savefig(args.subnet + str(args.L) + '_' + str(args.unitary) + args.name + '_dist_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
     plt.close()
@@ -340,7 +341,7 @@ def main():
 
     time1 = time.time() - start_time
 
-    plot_phi_complex_plane(flow, 3, 3, name='stage_i_' + str(args.epoch_i))
+    plot_phi_complex_plane(flow, 2, 2, name='stage_i_' + str(args.epoch_i))
     plot_phi_configxy(flow, name='stage_i_' + str(args.epoch_i))
 
     ######################################################
@@ -404,7 +405,7 @@ def main():
 
     time2 = time.time() - time1
 
-    plot_phi_complex_plane(flow, 3, 3, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_phi_complex_plane(flow, 2, 2, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
     plot_phi_configxy(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
 
     ######################################################
@@ -420,7 +421,7 @@ def main():
     plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
     plt.close()
 
-    plot_two_point_fct(flow)
+    #plot_two_point_fct(flow)
 
     """
     start_time = time.time()
