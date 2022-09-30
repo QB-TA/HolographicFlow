@@ -49,6 +49,20 @@ group.add_argument(
     help='type of subnet in an RG block',
 )
 group.add_argument(
+    '--unitary',
+    type=str,
+    default='linear',
+    choices=['linear', 'u_eqvar', 'su_eqvar', 'cayley', 'mat_exp', 'o2_stack'],
+    help='type of transformation for decimator and disentanglers',
+)
+group.add_argument(
+    '--reparametrize',
+    type=str,
+    default='positive_definite',
+    choices=['positive_definite', 'nearest_neighbor'],
+    help='implementation of the reparametrization for the correlated gaussian',
+)
+group.add_argument(
     '--kernel_size',
     type=int,
     default=2,
@@ -82,8 +96,15 @@ group.add_argument(
     '--dtype',
     type=str,
     default='float32',
-    choices=['float32', 'float64', 'cfloat'],
+    choices=['float32', 'float64'],
     help='dtype',
+)
+group.add_argument(
+    '--complex_field',
+    type=str,
+    default='True',
+    choices=['True', 'False'],
+    help='set True to use complex fields and weights',
 )
 group.add_argument(
     '--name',
@@ -94,15 +115,22 @@ group.add_argument(
 group.add_argument(
     '--T',
     type=float,
-    default='0.5',
+    default=0.5,
     help='temperature of the QFT',
 )
 
 group = parser.add_argument_group('optimizer parameters')
 group.add_argument(
+    '--optimizer',
+    type=str,
+    default='adamw',
+    choices=['sgd', 'adam', 'adamw'],
+    help='optimizer',
+)
+group.add_argument(
     '--batch_size',
     type=int,
-    default=64,
+    default=1,
     help='batch size',
 )
 group.add_argument(
@@ -138,7 +166,7 @@ group.add_argument(
 group.add_argument(
     '--clip_grad',
     type=float,
-    default=1,
+    default=0,
     help='global norm to clip gradients, 0 for disabled',
 )
 
@@ -195,11 +223,26 @@ group.add_argument(
 
 args = parser.parse_args()
 
-if args.subnet == 'ehm':
-    args.kernel_size = 2
-    args.nchannels = 1
-    args.prior = 'gaussian'
+if args.complex_field == 'True':
+    args.complex = True
+if args.complex_field == 'False':
+    args.complex = False
 
+
+if args.subnet == 'ehm':
+    args.nchannels = 1
+
+if args.subnet == 'rnvp' and args.complex:
+    args.nchannels = 2
+
+if args.subnet == 'ar' and args.complex:
+    args.nchannels = 2
+
+if args.unitary == 'o2_stack':
+    args.kernel_size = 2
+
+if args.unitary == 'u_eqvar' or args.unitary == 'su_eqvar':
+    args.cuda = 0
 
 if args.dtype == 'float32':
     torch.set_default_tensor_type(torch.FloatTensor)
@@ -207,6 +250,9 @@ elif args.dtype == 'float64':
     torch.set_default_tensor_type(torch.DoubleTensor)
 else:
     raise ValueError('Unknown dtype: {}'.format(args.dtype))
+
+
+
 
 if args.cuda:
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'

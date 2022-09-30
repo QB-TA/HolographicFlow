@@ -9,6 +9,6 @@ from .scale import Scale
 from .swish import Swish
 from .ehm import EHM
 from .scaling import Scaling
-from .orthogonal import Orthogonal
+from .unitary import Unitary
 from .activation import Activation
 from .correlated_gaussian import CorrelatedGaussian

@@ -1,6 +1,8 @@
 from torch import nn
 import torch
 
+from args import args
+
 
 class Flow(nn.Module):
     def __init__(self, reparametrize=None, prior=None):
@@ -25,7 +27,7 @@ class Flow(nn.Module):
         x, inv_ldj = self.inverse(z)
         if self.reparametrize != None:
             inv_ldj = logp_+inv_ldj
-        if x.dtype == torch.float32:
+        if args.complex and x.dtype == torch.float32:
             x = torch.complex(x[:,0,:,:], x[:,1:,:])
         return x, logp, inv_ldj
 

@@ -59,8 +59,6 @@ class RNVP(Flow):
     # Each layer does _forward() twice, so all parameters in the layer are used
     def forward(self, x):
         ldj = x.new_zeros(x.shape[0])
-        print('input x is on', x.get_device())
-        print('ldj is on', ldj.get_device())
         for s_layer, t_layer in zip(self.s_layers, self.t_layers):
             x, ldj_ = self._forward(x, s_layer, t_layer, self.mask_left,
                                     self.mask_right)
