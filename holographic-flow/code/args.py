@@ -52,7 +52,7 @@ group.add_argument(
     '--unitary',
     type=str,
     default='linear',
-    choices=['linear', 'u_eqvar', 'su_eqvar', 'cayley', 'exp', 'o2_stack'],
+    choices=['linear', 'eqvar', 'eqvar_sp', 'cayley', 'exp', 'o2_stack'],
     help='type of transformation for decimator and disentanglers',
 )
 group.add_argument(
@@ -241,8 +241,8 @@ if args.subnet == 'ar' and args.complex:
 if args.unitary == 'o2_stack':
     args.kernel_size = 2
 
-if args.unitary == 'u_eqvar' or args.unitary == 'su_eqvar':
-    args.cuda = 0
+if args.unitary == 'eqvar' or args.unitary == 'eqvar_sp':
+    args.cuda = ''
 
 if args.dtype == 'float32':
     torch.set_default_tensor_type(torch.FloatTensor)
