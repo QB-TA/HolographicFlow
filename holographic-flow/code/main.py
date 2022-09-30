@@ -247,7 +247,7 @@ def plot_two_point_fct(flow, name=''):
     flow.train(True)
 
 def loss_holography(flow, k, m, lam):
-    x, invldj, logprior = flow.sample(args.batch_size, prior=get_prior(temperature=1))
+    x, logprior, invldj = flow.sample(args.batch_size, prior=get_prior(temperature=1))
     action_qft = utils.phi4_action(x, k, m, lam)
     loss = action_qft + logprior - invldj / args.L**2
     loss_mean = loss.mean()
@@ -329,6 +329,7 @@ def main():
         if epoch_idx % 1000 == 0:
             my_log('\nTraining step '+ str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
+            #print(unitary)
             #plot_phi_complex_plane(flow, 'stage_i_' + str(epoch_idx))
             #plot_phi_configxy(flow, 'stage_i_' + str(epoch_idx))
 
