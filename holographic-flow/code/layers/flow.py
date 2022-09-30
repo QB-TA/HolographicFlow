@@ -29,7 +29,7 @@ class Flow(nn.Module):
             inv_ldj = logp_+inv_ldj
         if args.complex and x.dtype == torch.float32:
             x = torch.complex(x[:,0,:,:], x[:,1:,:])
-        return x, logp, inv_ldj, z
+        return x, logp, inv_ldj
 
     def log_prob(self, x):
         z, logp = self.forward(x)
