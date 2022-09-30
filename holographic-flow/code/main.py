@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sched
 import time
 import traceback
 from math import log, sqrt
@@ -91,7 +92,7 @@ def build_arflow(nchannels, kernel_size, nlayers, nresblocks, nmlp, nhidden):
 def build_ehm(type):
     net = layers.EHM(
         layers.Scaling(),
-        layers.Orthogonal(type),
+        layers.Unitary(type),
         layers.Activation()
     )
     return net
@@ -170,26 +171,84 @@ def do_plot(flow, epoch_idx):
 
     flow.train(True)
 
-def plot_phi_dist(flow, name):
+def plot_phi_complex_plane(flow, row=1, col=1, name=''):
     #Plotting field distribution in complex plane
-
     flow.train(False)
 
-    qft_config = flow.sample(1)[0]
-    phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
-    phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
+    n = int(row*col)
+    qft_config = flow.sample(n)[0]
 
-    plt.scatter(phi_real, phi_imag)
-    plt.xlabel(r'Re($\phi$)')
-    plt.ylabel(r'Im($\phi$)')
-    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_' + name + '.png')
+    if row == 1 and col == 1:
+        plt.figure(figsize=(10, 10), dpi=150)
+        plt.scatter(phi_real, phi_imag)   
+        plt.xlabel(r'Re($\phi$)')
+        plt.ylabel(r'Im($\phi$)')
+        plt.axes().set_aspect('equal')
+        plt.xlim((-2.1, 2.1))
+        plt.ylim((-2.1, 2.1))
+    
+    else:
+        phi_real = []
+        phi_imag = []
+        for i in range(row*col):
+            phi_real.append(qft_config[i,0,:,:].real.flatten().cpu().detach().numpy())
+            phi_imag.append(qft_config[i,0,:,:].imag.flatten().cpu().detach().numpy())
+
+        fig, axs = plt.subplots(row, col, sharex=True, sharey=True, figsize=(10,10), dpi=150)
+        for i in range(row):
+            for j in range(col):
+                axs[i, j].scatter(phi_real[i*row+j], phi_imag[i*row+j])
+
+    plt.savefig(args.subnet + str(args.L) + '_' + str(args.unitary) + args.name + '_dist_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
     plt.close()
 
     flow.train(True)
 
+def plot_phi_configxy(flow, name=''):
+    #Plotting field distribution in xy-plane real space
+    flow.train(False)
+
+    qft_config = flow.sample(1)[0]
+    phi_real = qft_config[0,0,:,:].real.cpu().detach().numpy()
+    phi_imag = qft_config[0,0,:,:].imag.cpu().detach().numpy()
+
+    x = np.arange(0, args.L)
+    y = np.arange(0, args.L)
+    X, Y = np.meshgrid(x, y)
+
+    plt.figure(figsize=(10, 10), dpi=150)
+    plt.axes().set_aspect('equal')
+
+    plt.quiver(X, Y, phi_real, phi_imag)
+
+    plt.savefig(args.subnet + str(args.L) + '_' + str(args.unitary) + args.name + '_config_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
+    plt.close()
+
+    flow.train(True)
+
+def plot_two_point_fct(flow, name=''):
+    flow.train(False)
+    holo = HolographicDistance(flow)
+    corr = []
+    for r in range(int(args.L/2)):
+        x_dir = []
+        y_dir = []
+        for i in range(args.L):
+            for j in range(args.L):
+                x_dir.append(holo.two_point_fct(i,j,i,(j+r)%args.L).item().real)
+                y_dir.append(holo.two_point_fct(i,j,(i+r)%args.L,j).item().real)
+        corr.append((np.mean(x_dir) + np.mean(y_dir))/2)
+
+    plt.plot(np.arange(int(args.L/2)), corr)
+    plt.xlabel(r'$r_{ij}$')
+    plt.ylabel(r'$\langle \phi_i^\ast \phi_j \rangle$')
+    plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + 'two_point.png')
+    plt.close()
+    flow.train(True)
+
 def loss_holography(flow, k, m, lam):
     x, invldj, logprior = flow.sample(args.batch_size, prior=get_prior(temperature=1))
-    action_qft = utils.phi4_action(x, k=k, m=m, lam=lam)
+    action_qft = utils.phi4_action(x, k, m, lam)
     loss = action_qft + logprior - invldj / args.L**2
     loss_mean = loss.mean()
     utils.check_nan(loss_mean)
@@ -202,59 +261,54 @@ def main():
     flow = build_mera()
     flow.train(True)
 
-    #state = torch.load('{}/{}.state'.format('./saved_model/ehm'+str(args.L), 'test_ortho_sgd_stage_i_b1_10000'),
-    #                   map_location=args.device)
-    #flow.load_state_dict(state['flow'], strict=False)
+    k = 1. / (2. * args.T)
+    r = -200.
+    m = 4*k + r
+    lam = -r/8.
 
-    #QFT coefficients, T=0.5
-    #k = 1.
-    #m = -196.
-    #lam = 25.
-
-    #QFT coefficients, disordered phase
-    #k = 0.125
-    #m = -199.5
-    #lam = 25.0
-
-    #QFT coefficients, T=0.1
-    k = 5.0
-    m = -180.0
-    lam = 25.0
-
-
-    my_log('Network depth:' + str(args.depth))
+    my_log('Network type: ' + str(args.subnet))
+    my_log('Network depth: ' + str(args.depth))
     my_log('Number of parameters in each RG layer: {}'.format(
-        [utils.get_nparams(layer) for layer in flow.layers]))
+            [utils.get_nparams(layer) for layer in flow.layers]))
     
-    print('QFT parameters: k = ' + str(k) + '  |  mass = ' + str(m) + '  |  lambda = ' + str(lam))
-
-    #state = {'flow': flow.state_dict()}
-    #torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L), args.name + '_untrained_b'+str(args.batch_size)))
-
-    ######################################################
+    my_log('QFT parameters: T = ' + str(args.T) + '  ||  k = ' + str(k) + '  |  mass = ' + str(m) + '  |  lambda = ' + str(lam))
+    my_log('Size of boundary QFT: ' + str(args.L) + ' x ' + str(args.L))
 
     loss_list = []
     start_time = time.time()
-    
+
+    ######################################################
+
     print('\nTRAINING STAGE I')
 
     scaling = []
-    orthogonal = []
+    unitary = []
     for pname, param in flow.named_parameters():
-        if 'scale' in pname: 
+        if 'scale' in pname:
             scaling.append(param)
-        if 'theta' in pname:
-            orthogonal.append(param)
+        if 'unitary' in pname:
+            unitary.append(param)
 
-    optimizer = torch.optim.AdamW([{'params':scaling, 'lr':1e-2}, 
-                                   {'params':orthogonal, 'lr':1e-4}])
+    if args.optimizer == 'sgd':
+        optimizer = torch.optim.SGD([{'params':scaling, 'lr':1e-2}, 
+                                     {'params':unitary, 'lr':1e-4}])
+
+    if args.optimizer == 'adam':
+        optimizer = torch.optim.Adam([{'params':scaling, 'lr':1e-2}, 
+                                     {'params':unitary, 'lr':1e-4}])
+    
+    if args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW([{'params':scaling, 'lr':1e-2}, 
+                                     {'params':unitary, 'lr':1e-4}])
+
+    #state = torch.load('{}/{}.state'.format('./saved_model/ehm' + str(args.L), 'T0.5DELETE_stage_ii_b1_10000'),
+    #                   map_location=args.device)
+    #flow.load_state_dict(state['flow'], strict=False)
 
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
 
     my_log('\nTraining step 0')
-    my_log('loss =' + str(loss_holography(flow, k, m, lam).item()))
-    my_log(str(scaling))
-    my_log(str(orthogonal))
+    my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
 
     for epoch_idx in range(1, args.epoch_i+1):
         optimizer.zero_grad()
@@ -263,31 +317,30 @@ def main():
         loss_list.append(loss.item())
 
         loss.backward()
-        #clip_grad_norm_(scaling, args.clip_grad)
-        #clip_grad_norm_(orthogonal, args.clip_grad)
+        if args.clip_grad:
+            clip_grad_norm_(scaling, args.clip_grad)
+            clip_grad_norm_(unitary, args.clip_grad)
         optimizer.step()
 
-        #print(scaling)
-        #print(orthogonal)
         #optimizer.param_groups[0]['lr'] += (1e-4 - 1e-2) * 2 / args.epoch_i
-        if epoch_idx == 3000: optimizer.param_groups[0]['lr'] = 1e-3
-        if epoch_idx == 7000: optimizer.param_groups[0]['lr'] = 1e-4
+        if epoch_idx == int(args.epoch_i/3): optimizer.param_groups[0]['lr'] = 1e-3
+        if epoch_idx == int(2*args.epoch_i/3): optimizer.param_groups[0]['lr'] = 1e-4
 
         if epoch_idx % 1000 == 0:
-            my_log('Training step '+ str(epoch_idx))
+            my_log('\nTraining step '+ str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            my_log(str(scaling))
-            my_log(str(orthogonal))
-            #my_log(str(flow.reparametrize.mass))
-            #my_log(str(flow.reparametrize.kinetic))
+            #plot_phi_complex_plane(flow, 'stage_i_' + str(epoch_idx))
+            #plot_phi_configxy(flow, 'stage_i_' + str(epoch_idx))
+
 
     state = {'flow': flow.state_dict()}
     torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
-                                          args.name + '_stage_i_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
+                                          str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
 
     time1 = time.time() - start_time
 
-    plot_phi_dist(flow, 'stage_i_' + str(args.epoch_i))
+    plot_phi_complex_plane(flow, 3, 3, name='stage_i_' + str(args.epoch_i))
+    plot_phi_configxy(flow, name='stage_i_' + str(args.epoch_i))
 
     ######################################################
 
@@ -295,21 +348,34 @@ def main():
 
     for param in flow.parameters():
         param.requires_grad = False
-    #flow.reparametrize.mass.requires_grad = True
-    flow.reparametrize.kinetic.requires_grad = True
-    torch.nn.init.constant_(flow.reparametrize.kinetic, 0.001)
-    #torch.nn.init.constant_(flow.reparam.mass, 0.1)
+  
+    if args.reparametrize == 'nearest_neighbor':
+        flow.reparametrize.mass.requires_grad = True
+        flow.reparametrize.kinetic.requires_grad = True
+        torch.nn.init.constant_(flow.reparametrize.kinetic, 0.001)
+        #torch.nn.init.constant_(flow.reparam.mass, 0.1)
     
+    if args.reparametrize == 'positive_definite':
+        #flow.reparametrize.cholesky.bias.requires_grad = True
+        flow.reparametrize.cholesky.parametrizations.weight.original.requires_grad = True
+        cov_init = torch.eye(args.L**2, device=args.device) + torch.full((args.L**2, args.L**2), 1e-2, device=args.device)
+        flow.reparametrize.cholesky.parametrizations.weight.original = torch.nn.Parameter(cov_init)
+        if args.subnet == 'ehm':
+            flow.reparametrize.cholesky.to(torch.complex64)
+
     params2 = [x for x in flow.parameters() if x.requires_grad]
-    optimizer2 = torch.optim.AdamW(params2,
-                                  lr=args.lr)
+
+    if args.optimizer == 'sgd':
+        optimizer2 = torch.optim.SGD(params2, lr = args.lr)
+    if args.optimizer == 'adam':
+        optimizer2 = torch.optim.Adam(params2, lr = args.lr)
+    if args.optimizer == 'adamw':
+        optimizer2 = torch.optim.AdamW(params2, lr = args.lr)
 
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
 
-    my_log('\nTraining step ' + args.epoch_i)
-    my_log('loss =' + str(loss_holography(flow, k, m, lam).item()))
-    my_log(str(flow.reparametrize.mass))
-    my_log(str(flow.reparametrize.kinetic))
+    my_log('\nTraining step ' + str(args.epoch_i))
+    my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
 
     for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
         optimizer2.zero_grad()
@@ -318,22 +384,27 @@ def main():
         loss_list.append(loss.item())
 
         loss.backward()
-        #clip_grad_norm_(params2, args.clip_grad)
+        if args.clip_grad:
+            clip_grad_norm_(params2, args.clip_grad)
         optimizer2.step()
 
         if epoch_idx % 1000 == 0:     
             my_log('\nTraining step ' + str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            my_log(str(flow.reparametrize.mass))
-            my_log(str(flow.reparametrize.kinetic))
+            #plot_phi_complex_plane(flow, 'stage_ii_' + str(epoch_idx))
+            #plot_phi_configxy(flow, 'stage_ii_' + str(epoch_idx))
     
+    final_loss = loss_holography(flow, k, m, lam)
+    loss_list.append(final_loss.item())
+
     state = {'flow': flow.state_dict()}
     torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L),
-                                          args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
+                                          str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
 
     time2 = time.time() - time1
 
-    plot_phi_dist(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_phi_complex_plane(flow, 3, 3, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_phi_configxy(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
 
     ######################################################
 
@@ -345,8 +416,10 @@ def main():
     plt.plot(np.arange(0, args.epoch_i + args.epoch_ii + 1), loss_list)
     plt.xlabel('training steps')
     plt.ylabel('loss')
-    plt.savefig(args.subnet + str(args.L) + '_' + args.name + '_b' + str(args.batch_size) + '_loss.png')
+    plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
     plt.close()
+
+    plot_two_point_fct(flow)
 
     """
     start_time = time.time()
