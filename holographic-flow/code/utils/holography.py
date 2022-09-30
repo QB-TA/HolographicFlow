@@ -35,8 +35,8 @@ class HolographicDistance():
         The boundary is layer 0.
         x1, x2 is the center position of the decimator projected to the boundary
         """
-        cov = self.flow.reparametrize.precision_matrix()
-        cov = torch.linalg.inv(cov)
+        cov = self.flow.covariance()
+
         ang_dist = []
         I1 = None
         J1 = None

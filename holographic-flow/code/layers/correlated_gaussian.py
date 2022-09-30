@@ -181,18 +181,6 @@ class CorrelatedGaussian(nn.Module):
             L = torch.linalg.inv(L)
             L = torch.linalg.cholesky(L)
             z = z @ L.T
-            '''
-            else:
-                z_real = z[:,0,:,:]
-                z_imag = z[:,1,:,:]
-                z_real.view(z_real.shape[0], -1)
-                z_imag.view(z_imag.shape[0], -1)
-                z_real = z_real @ L.T
-                z_imag = z_imag @ L.T
-                z_real.view(z_real.shape[0], 1, H, W)
-                z_imag.view(z_imag.shape[0], 1, H, W)
-                z = torch.cat([z_real, z_imag], dim=1)
-            '''
             _, logdet = torch.linalg.slogdet(L)
             
         if args.reparametrize == 'positive_definite':

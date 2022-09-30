@@ -12,13 +12,15 @@ class Gaussian(Source):
         super().__init__(nvars)
         self.register_buffer(
             'scale', torch.tensor(scale))
+        if args.complex: 
+            self.dtype = torch.complex64
+        else: 
+            self.dtype = torch.float32
 
     def sample(self, batch_size):
         shape = [batch_size, 1 , self.nvars[1], self.nvars[2]]
-        out = self.scale.new_empty(shape, dtype=torch.complex64).normal_()
+        out = self.scale.new_empty(shape, dtype=self.dtype).normal_()
         out = out * self.scale
-        if args.subnet != 'ehm':
-            out = torch.cat((out.real, out.imag), dim=1)
         return out
 
     def log_prob(self, x):
