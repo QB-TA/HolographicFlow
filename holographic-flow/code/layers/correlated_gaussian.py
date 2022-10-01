@@ -167,7 +167,7 @@ class CorrelatedGaussian(nn.Module):
             cov = self.cholesky.weight @ self.cholesky.weight.T
         return cov
 
-    def inverse(self, x):
+    def forward(self, x):
         H = self.nvars[1]
         W = self.nvars[2]
         ldj = x.new_zeros(x.shape[0]).real
@@ -198,7 +198,7 @@ class CorrelatedGaussian(nn.Module):
         ldj = ldj + logdet
         return x, ldj
 
-    def forward(self, z):
+    def inverse(self, z):
         H = self.nvars[1]
         W = self.nvars[2]
         inv_ldj = z.new_zeros(z.shape[0]).real
