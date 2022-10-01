@@ -25,16 +25,17 @@ class CorrelatedGaussian(nn.Module):
             
         if args.reparametrize == 'positive_definite':
             #Positive-definite approach
-            self.cholesky = nn.Linear(H*W, H*W)
-            nn.init.zeros_(self.cholesky.bias)
+            self.cholesky = nn.Linear(H*W, H*W, bias=False)
+            #nn.init.zeros_(self.cholesky.bias)
             nn.init.eye_(self.cholesky.weight)
 
             if args.complex:
+                print('BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
                 self.cholesky.to(torch.complex64)
 
             parametrize.register_parametrization(self.cholesky, 'weight', LowerTriangular())
 
-            self.cholesky.bias.requires_grad = False
+            #self.cholesky.bias.requires_grad = False
             self.cholesky.parametrizations.weight.original.requires_grad = False
 
         
@@ -162,39 +163,9 @@ class CorrelatedGaussian(nn.Module):
         if args.reparametrize == 'nearest_neighbor':
             cov = self.precision_matrix()
             cov = torch.linalg.inv(cov)
-        
         if args.reparametrize == 'positive_definite':
             cov = self.cholesky.weight @ self.cholesky.weight.T
-        
         return cov
-
-    def forward(self, z):
-        H = self.nvars[1]
-        W = self.nvars[2]
-        inv_ldj = z.new_zeros(z.shape[0]).real
-        oldshape = z.shape
-        z = z.reshape((z.shape[0], -1))
-
-        if args.reparametrize == 'nearest_neighbor':
-        #Cholesky decomposition in nearest neighbour approach
-            L = self.precision_matrix()
-            L = torch.linalg.inv(L)
-            L = torch.linalg.cholesky(L)
-            z = z @ L.T
-            _, logdet = torch.linalg.slogdet(L)
-            
-        if args.reparametrize == 'positive_definite':
-        #General reparametrization with positive definite covariance
-            z = z.reshape((z.shape[0], -1))
-            self.cholesky(z)
-            _, logdet = torch.linalg.slogdet(self.cholesky.weight)
-
-        z = z.reshape(oldshape)
-        if args.complex and self.nvars[0] == 2:
-            z = torch.cat([z.real, z.imag], dim=1)
-
-        inv_ldj = inv_ldj + logdet
-        return z, inv_ldj
 
     def inverse(self, x):
         H = self.nvars[1]
@@ -215,6 +186,7 @@ class CorrelatedGaussian(nn.Module):
         if args.reparametrize == 'positive_definite':
         #General reparametrization with positive definite covariance
             x = x.reshape((x.shape[0], -1))
+            if args.complex: self.cholesky.to(torch.complex64)
             chol_inv = torch.linalg.inv(self.cholesky.weight)
             x = x @ chol_inv.T
             _, logdet = torch.linalg.slogdet(self.cholesky.weight)
@@ -225,3 +197,32 @@ class CorrelatedGaussian(nn.Module):
 
         ldj = ldj + logdet
         return x, ldj
+
+    def forward(self, z):
+        H = self.nvars[1]
+        W = self.nvars[2]
+        inv_ldj = z.new_zeros(z.shape[0]).real
+        oldshape = z.shape
+        z = z.reshape((z.shape[0], -1))
+
+        if args.reparametrize == 'nearest_neighbor':
+        #Cholesky decomposition in nearest neighbour approach
+            L = self.precision_matrix()
+            L = torch.linalg.inv(L)
+            L = torch.linalg.cholesky(L)
+            z = z @ L.T
+            _, logdet = torch.linalg.slogdet(L)
+            
+        if args.reparametrize == 'positive_definite':
+        #General reparametrization with positive definite covariance
+            z = z.reshape((z.shape[0], -1))
+            if args.complex: self.cholesky.to(torch.complex64)
+            self.cholesky(z)
+            _, logdet = torch.linalg.slogdet(self.cholesky.weight)
+
+        z = z.reshape(oldshape)
+        if args.complex and self.nvars[0] == 2:
+            z = torch.cat([z.real, z.imag], dim=1)
+
+        inv_ldj = inv_ldj + logdet
+        return z, inv_ldj

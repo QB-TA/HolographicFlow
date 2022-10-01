@@ -29,6 +29,7 @@ class Skew(nn.Module):
 
 
 class CayleyMap(nn.Module):
+    #applied to skew matrices it produces a subset of SU(n)
     def __init__(self, n):
         super().__init__()
         self.register_buffer("Id", torch.eye(n))
@@ -44,6 +45,7 @@ class CayleyMap(nn.Module):
 
 
 class MatrixExponential(nn.Module):
+    #applied to skew matrices it produces matrices of SU(n)
     def forward(self, X):
         return torch.matrix_exp(X)
 

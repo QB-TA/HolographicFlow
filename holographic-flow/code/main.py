@@ -330,9 +330,11 @@ def main():
         if epoch_idx % 1000 == 0:
             my_log('\nTraining step '+ str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            #print(unitary)
-            #plot_phi_complex_plane(flow, 'stage_i_' + str(epoch_idx))
-            #plot_phi_configxy(flow, 'stage_i_' + str(epoch_idx))
+            #state = {'flow': flow.state_dict()}
+            #torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
+            #                              str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
+            #plot_phi_complex_plane(flow, 2, 2, name='stage_i_' + str(epoch_idx))
+            #plot_phi_configxy(flow, name='stage_i_' + str(epoch_idx))
 
 
     state = {'flow': flow.state_dict()}
@@ -375,9 +377,11 @@ def main():
         optimizer2 = torch.optim.AdamW(params2, lr = args.lr)
 
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
-
+    
     my_log('\nTraining step ' + str(args.epoch_i))
     my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
+
+
 
     for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
         optimizer2.zero_grad()
@@ -393,7 +397,9 @@ def main():
         if epoch_idx % 1000 == 0:     
             my_log('\nTraining step ' + str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            #plot_phi_complex_plane(flow, 'stage_ii_' + str(epoch_idx))
+            torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
+                                str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
+            #plot_phi_complex_plane(flow, 2, 2, name='stage_ii_' + str(epoch_idx))
             #plot_phi_configxy(flow, 'stage_ii_' + str(epoch_idx))
     
     final_loss = loss_holography(flow, k, m, lam)
