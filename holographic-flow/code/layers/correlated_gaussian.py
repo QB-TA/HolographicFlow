@@ -30,7 +30,6 @@ class CorrelatedGaussian(nn.Module):
             nn.init.eye_(self.cholesky.weight)
 
             if args.complex:
-                print('BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
                 self.cholesky.to(torch.complex64)
 
             parametrize.register_parametrization(self.cholesky, 'weight', LowerTriangular())

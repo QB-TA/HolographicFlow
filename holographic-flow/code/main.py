@@ -381,8 +381,6 @@ def main():
     my_log('\nTraining step ' + str(args.epoch_i))
     my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
 
-
-
     for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
         optimizer2.zero_grad()
 
@@ -427,7 +425,7 @@ def main():
     plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
     plt.close()
 
-    #plot_two_point_fct(flow)
+    plot_two_point_fct(flow)
 
     """
     start_time = time.time()
