@@ -171,7 +171,7 @@ def do_plot(flow, epoch_idx):
 
     flow.train(True)
 
-def plot_phi_complex_plane(flow, row=1, col=1, name=''):
+def plot_qft_complex_plane(flow, row=1, col=1, name=''):
     #Plotting field distribution in complex plane
     flow.train(False)
 
@@ -182,14 +182,16 @@ def plot_phi_complex_plane(flow, row=1, col=1, name=''):
         phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
         phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
         plt.figure(figsize=(10, 10), dpi=150)
-        plt.xlabel(r'Re($\phi$)')
-        plt.ylabel(r'Im($\phi$)')
+        plt.xlabel(r'Re($\psi$)')
+        plt.ylabel(r'Im($\psi$)')
         plt.axes().set_aspect('equal')
         plt.xlim((-2.1, 2.1))
         plt.ylim((-2.1, 2.1))
         plt.scatter(phi_real[0], phi_imag[0], s=1)   
     
     else:
+        plt.xlim((-2.1, 2.1))
+        plt.ylim((-2.1, 2.1))
         phi_real = []
         phi_imag = []
         for i in range(row*col):
@@ -205,7 +207,7 @@ def plot_phi_complex_plane(flow, row=1, col=1, name=''):
 
     flow.train(True)
 
-def plot_phi_configxy(flow, name=''):
+def plot_qft_configxy(flow, name=''):
     #Plotting field distribution in xy-plane real space
     flow.train(False)
 
@@ -236,13 +238,13 @@ def plot_two_point_fct(flow, name=''):
         y_dir = []
         for i in range(args.L):
             for j in range(args.L):
-                x_dir.append(holo.two_point_fct(i,j,i,(j+r)%args.L).item().real)
-                y_dir.append(holo.two_point_fct(i,j,(i+r)%args.L,j).item().real)
+                x_dir.append(holo.two_point(i,j,i,(j+r)%args.L).item().real)
+                y_dir.append(holo.two_point(i,j,(i+r)%args.L,j).item().real)
         corr.append((np.mean(x_dir) + np.mean(y_dir))/2)
 
     plt.plot(np.arange(int(args.L/2)), corr)
     plt.xlabel(r'$r_{ij}$')
-    plt.ylabel(r'$\langle \phi_i^\ast \phi_j \rangle$')
+    plt.ylabel(r'$\langle \psi_i^\ast \psi_j \rangle$')
     plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + 'two_point.png')
     plt.close()
     flow.train(True)
@@ -268,6 +270,7 @@ def main():
     lam = -r/8.
 
     my_log('Network type: ' + str(args.subnet))
+    my_log('Unitary transformation: ' + str(args.unitary))
     my_log('Network depth: ' + str(args.depth))
     my_log('Number of parameters in each RG layer: {}'.format(
             [utils.get_nparams(layer) for layer in flow.layers]))
@@ -275,6 +278,7 @@ def main():
     my_log('QFT parameters: T = ' + str(args.T) + '  ||  k = ' + str(k) + '  |  mass = ' + str(m) + '  |  lambda = ' + str(lam))
     my_log('Size of boundary QFT: ' + str(args.L) + ' x ' + str(args.L))
 
+    my_log('\nBatch size: ' + str(args.batch_size))
     loss_list = []
     start_time = time.time()
 
@@ -287,7 +291,7 @@ def main():
     for pname, param in flow.named_parameters():
         if 'scale' in pname:
             scaling.append(param)
-        if 'unitary' in pname:
+        if 'unitary' in pname or 'theta' in pname:
             unitary.append(param)
 
     if args.optimizer == 'sgd':
@@ -310,6 +314,7 @@ def main():
 
     my_log('\nTraining step 0')
     my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
+    print(unitary)
 
     for epoch_idx in range(1, args.epoch_i+1):
         optimizer.zero_grad()
@@ -327,14 +332,15 @@ def main():
         if epoch_idx == int(args.epoch_i/3): optimizer.param_groups[0]['lr'] = 1e-3
         if epoch_idx == int(2*args.epoch_i/3): optimizer.param_groups[0]['lr'] = 1e-4
 
-        if epoch_idx % 1000 == 0:
+        if epoch_idx % 10000 == 0:
             my_log('\nTraining step '+ str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            #state = {'flow': flow.state_dict()}
-            #torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
-            #                              str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
-            #plot_phi_complex_plane(flow, 2, 2, name='stage_i_' + str(epoch_idx))
-            #plot_phi_configxy(flow, name='stage_i_' + str(epoch_idx))
+            state = {'flow': flow.state_dict()}
+            torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
+                                          str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
+            plot_qft_complex_plane(flow, 2, 2, name='stage_i_' + str(epoch_idx))
+            plot_qft_configxy(flow, name='stage_i_' + str(epoch_idx))
+            print(unitary)
 
 
     state = {'flow': flow.state_dict()}
@@ -343,8 +349,8 @@ def main():
 
     time1 = time.time() - start_time
 
-    plot_phi_complex_plane(flow, 2, 2, name='stage_i_' + str(args.epoch_i))
-    plot_phi_configxy(flow, name='stage_i_' + str(args.epoch_i))
+    plot_qft_complex_plane(flow, 2, 2, name='stage_i_' + str(args.epoch_i))
+    plot_qft_configxy(flow, name='stage_i_' + str(args.epoch_i))
 
     ######################################################
 
@@ -392,13 +398,15 @@ def main():
             clip_grad_norm_(params2, args.clip_grad)
         optimizer2.step()
 
-        if epoch_idx % 1000 == 0:     
+        if epoch_idx % 10000 == 0:     
             my_log('\nTraining step ' + str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
             torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
                                 str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
-            #plot_phi_complex_plane(flow, 2, 2, name='stage_ii_' + str(epoch_idx))
-            #plot_phi_configxy(flow, 'stage_ii_' + str(epoch_idx))
+            plot_qft_complex_plane(flow, 2, 2, name='stage_ii_' + str(epoch_idx))
+            plot_qft_configxy(flow, 'stage_ii_' + str(epoch_idx))
+            print(params2)
+            print(flow.reparametrize.cholesky)
     
     final_loss = loss_holography(flow, k, m, lam)
     loss_list.append(final_loss.item())
@@ -409,8 +417,8 @@ def main():
 
     time2 = time.time() - time1
 
-    plot_phi_complex_plane(flow, 2, 2, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
-    plot_phi_configxy(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_qft_complex_plane(flow, 2, 2, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_qft_configxy(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
 
     ######################################################
 

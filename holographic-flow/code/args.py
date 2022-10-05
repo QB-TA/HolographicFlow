@@ -51,8 +51,8 @@ group.add_argument(
 group.add_argument(
     '--unitary',
     type=str,
-    default='exp',
-    choices=['linear', 'emlp', 'emlp_sp', 'cayley', 'exp', 'o2_stack'],
+    default='linear',
+    choices=['linear', 'cayley', 'exp', 'emlp', 'emlp_sp', 'o2_stack'],
     help='type of transformation for decimator and disentanglers',
 )
 group.add_argument(

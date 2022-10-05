@@ -11,9 +11,9 @@ class EHM(Flow):
                  activation,
                  prior=None):
         super().__init__(prior)
-        self.layers = nn.ModuleList([scaling, 
+        self.layers = nn.ModuleList([activation, 
                                      unitary, 
-                                     activation
+                                     scaling
                                     ])
 
     def forward(self, x):
@@ -21,12 +21,12 @@ class EHM(Flow):
         for layer in self.layers:
             x, ldj_ = layer(x)
             ldj = ldj + ldj_
-        return x, ldj.real
+        return x, ldj
 
     def inverse(self, z):
         inv_ldj = z.new_zeros(z.shape[0], dtype=torch.get_default_dtype())
-        for layer in self.layers:
+        for layer in reversed(self.layers):
             z, inv_ldj_ = layer.inverse(z)
             inv_ldj = inv_ldj + inv_ldj_
-        return z, inv_ldj.real
+        return z, inv_ldj
         

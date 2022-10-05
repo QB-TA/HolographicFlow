@@ -32,7 +32,7 @@ class HierarchyBijector(Flow):
             x_ = utils.unstackRGblock(x_, batch_size)
             x = utils.collect(indexI, indexJ, x, x_)
 
-        return x, ldj
+        return x, ldj.real
 
     def inverse(self, z):
         batch_size = z.shape[0]
@@ -49,4 +49,4 @@ class HierarchyBijector(Flow):
             z_ = utils.unstackRGblock(z_, batch_size)
             z = utils.collect(indexI, indexJ, z, z_)
 
-        return z, inv_ldj
+        return z, inv_ldj.real

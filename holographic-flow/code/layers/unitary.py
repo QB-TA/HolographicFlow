@@ -58,7 +58,10 @@ class Unitary(nn.Module):
         
         #Implements a general O(4) trafo.
         if args.unitary == 'linear' or args.unitary == 'cayley' or args.unitary == 'exp':
-            self.unitary = nn.Linear(n, n, bias=False)
+            if args.complex: 
+                dtype = torch.complex64
+            else: dtype = torch.float32
+            self.unitary = nn.Linear(n, n, bias=False, dtype=dtype)
             
             if args.unitary == 'cayley':
                 parametrize.register_parametrization(self.unitary, "weight", Skew())
@@ -72,22 +75,20 @@ class Unitary(nn.Module):
                 w_init = torch.tensor([[1.,  0.,  1.,  0.],
                                        [1.,  0., -1.,  0.],
                                        [0.,  1.,  0.,  1.],
-                                       [0.,  1.,  0., -1.]])
+                                       [0.,  1.,  0., -1.]], dtype=dtype)
                 w_init = w_init / math.sqrt(2.)
             if self.type == 'disentangler':
                 w_init = torch.tensor([[1., 0., 0., 0.],
                                        [0., 0., 1., 0.],
                                        [0., 1., 0., 0.],
-                                       [0., 0., 0., 1.]])
+                                       [0., 0., 0., 1.]], dtype=dtype)
 
             #nn.init.zeros_(self.unitary.bias)
             if args.unitary == 'linear':
                 self.unitary.weight = nn.Parameter(w_init)
+
             #if args.unitary == 'cayley' and self.type == 'decimator':
             #    self.unitary.weight = w_init
-
-            if args.complex:
-                self.unitary.to(torch.complex64)
 
         if args.unitary == 'emlp' or args.unitary == 'emlp_sp':
             #uses the EMLP package to make an Equivariant Linear Layer
