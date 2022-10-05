@@ -16,10 +16,11 @@ class CorrelatedGaussian(nn.Module):
         self.nvars = nvars
         H = self.nvars[1]
         W = self.nvars[2]
+        
+        self.indexI, self.indexJ = self.seperate_scales(indexI, indexJ)
 
         if args.reparametrize == 'nearest_neighbor':
             #Nearest neighbour approach
-            self.indexI, self.indexJ = self.seperate_scales(indexI, indexJ)
             self.mass = nn.Parameter(torch.tensor(mass), requires_grad=False)
             self.kinetic = nn.Parameter(torch.zeros([len(self.indexI), 2]), requires_grad=False)
             
@@ -62,7 +63,7 @@ class CorrelatedGaussian(nn.Module):
     
     def is_in_layer(self, i, j, layer):
         """
-        checks if node (i,j) is in the local neighborhood of layer
+        checks if the bulk variable at (i,j) is a specific RG layer
         """
         if layer >= 0 and layer < len(self.indexI):
             maski = (self.indexI[layer] == i)
@@ -188,7 +189,7 @@ class CorrelatedGaussian(nn.Module):
             if args.complex: self.cholesky.to(torch.complex64)
             chol_inv = torch.linalg.inv(self.cholesky.weight)
             x = x @ chol_inv.T
-            _, logdet = torch.linalg.slogdet(self.cholesky.weight)
+            _, logdet = torch.linalg.slogdet(chol_inv)
 
         x = x.reshape(oldshape)
         if args.complex and self.nvars[0] == 2:

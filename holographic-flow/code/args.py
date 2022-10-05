@@ -115,7 +115,7 @@ group.add_argument(
 group.add_argument(
     '--T',
     type=float,
-    default=0.1,
+    default=0.5,
     help='temperature of the QFT',
 )
 
@@ -130,7 +130,7 @@ group.add_argument(
 group.add_argument(
     '--batch_size',
     type=int,
-    default=1,
+    default=1024,
     help='batch size',
 )
 group.add_argument(
