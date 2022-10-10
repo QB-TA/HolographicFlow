@@ -49,11 +49,18 @@ group.add_argument(
     help='type of subnet in an RG block',
 )
 group.add_argument(
-    '--unitary',
+    '--disentangler',
     type=str,
     default='linear',
     choices=['linear', 'cayley', 'exp', 'emlp', 'emlp_sp', 'o2_stack'],
-    help='type of transformation for decimator and disentanglers',
+    help='type of transformation for disentanglers',
+)
+group.add_argument(
+    '--decimator',
+    type=str,
+    default='linear',
+    choices=['linear', 'cayley', 'exp', 'emlp', 'emlp_sp', 'o2_stack'],
+    help='type of transformation for decimators',
 )
 group.add_argument(
     '--reparametrize',
@@ -115,7 +122,7 @@ group.add_argument(
 group.add_argument(
     '--T',
     type=float,
-    default=0.5,
+    default=0.1,
     help='temperature of the QFT',
 )
 
@@ -154,13 +161,13 @@ group.add_argument(
 group.add_argument(
     '--epoch_i',
     type=int,
-    default=10000,
+    default=100000,
     help='number of epoches',
 )
 group.add_argument(
     '--epoch_ii',
     type=int,
-    default=10000,
+    default=100000,
     help='number of epoches',
 )
 group.add_argument(
@@ -238,10 +245,10 @@ if args.subnet == 'rnvp' and args.complex:
 if args.subnet == 'ar' and args.complex:
     args.nchannels = 2
 
-if args.unitary == 'o2_stack':
+if args.decimator == 'o2_stack' or args.disentangler == 'o2_stack':
     args.kernel_size = 2
 
-if args.unitary == 'eqvar' or args.unitary == 'eqvar_sp':
+if args.decimator == 'emlp' or args.disentangler == 'emlp_sp':
     args.cuda = ''
 
 if args.dtype == 'float32':
