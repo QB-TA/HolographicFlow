@@ -106,7 +106,7 @@ class HolographicDistance():
     def two_point(self, i1, j1, i2, j2):
         qft_config = self.flow.sample(args.batch_size)[0]
         two_point = qft_config[:, 0, i1, j1].conj() * qft_config[:, 0, i2, j2]
-        return two_point.mean()
+        return two_point.mean().abs()
     
     def one_point(self):
         qft_config = self.flow.sample(args.L**2)[0]

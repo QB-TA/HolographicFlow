@@ -75,7 +75,7 @@ def plot_qft_complex_plane(flow, n=1, name=''):
     phi_real = qft_config.real.flatten().cpu().detach().numpy()
     phi_imag = qft_config.imag.flatten().cpu().detach().numpy()
 
-    plt.figure(figsize=(8, 8), dpi=150)
+    plt.figure(figsize=(7, 7), dpi=300)
     plt.xlim((-2.1, 2.1))
     plt.ylim((-2.1, 2.1))
     #plt.axes().set_aspect('equal')
@@ -99,7 +99,7 @@ def plot_qft_configxy(flow, name=''):
     y = np.arange(0, args.L)
     X, Y = np.meshgrid(x, y)
 
-    plt.figure(figsize=(8, 8), dpi=150)
+    plt.figure(figsize=(7, 7), dpi=300)
     #plt.axes().set_aspect('equal')
 
     plt.quiver(X, Y, phi_real, phi_imag)
@@ -121,9 +121,10 @@ def plot_two_point_fct(flow, name=''):
                 y_dir.append(holo.two_point(i,j,(i+r)%args.L,j).item().real)
         corr.append((np.mean(x_dir) + np.mean(y_dir))/2)
 
+    plt.figure(figsize=(7, 7), dpi=300)
     plt.plot(np.arange(int(args.L/2)), corr)
     plt.xlabel(r'$|x-y|$')
-    plt.ylabel(r'$\langle \psi^\ast(x) \psi(y) \rangle$')
+    plt.ylabel(r'$\langle |\psi^\ast(x) \psi(y)| \rangle$')
     plt.savefig(str(args.L) + str(args.disentangler) + str(args.decimator)+ '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + 'two_point.png')
     plt.close()
     flow.train(True)
@@ -220,16 +221,13 @@ def main():
         if epoch_idx % args.print_step == 0:
             my_log('\nTraining step '+ str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
-            #state = {'flow': flow.state_dict()}
-            #torch.save(state,'{}/{}.state'.format('./saved_model/' + str(args.L),
-            #                              str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
             #plot_qft_complex_plane(flow, name='stage_i_' + str(epoch_idx))
             #plot_qft_configxy(flow, name='stage_i_' + str(epoch_idx))
             #print(linear)
 
 
     state = {'flow': flow.state_dict()}
-    torch.save(state,'{}/{}.state'.format('./saved_model/' + str(args.L),
+    torch.save(state,'{}/{}.state'.format('./saved_model/' + 'rg' + str(args.L),
                                           str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
 
     time1 = time.time() - start_time
@@ -288,8 +286,6 @@ def main():
         if epoch_idx % args.print_step == 0:     
             my_log('\nTraining step ' + str(epoch_idx))
             my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
-            #torch.save(state,'{}/{}.state'.format('./saved_model/' + str(args.L),
-            #                    str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
             #plot_qft_complex_plane(flow, name='stage_ii_' + str(epoch_idx))
             #plot_qft_configxy(flow, 'stage_ii_' + str(epoch_idx))
             #print(flow.reparametrize.covariance())
@@ -300,7 +296,7 @@ def main():
     flow.train(False)
 
     state = {'flow': flow.state_dict()}
-    torch.save(state,'{}/{}.state'.format('./saved_model/'+str(args.L),
+    torch.save(state,'{}/{}.state'.format('./saved_model/' + 'rg' + str(args.L),
                                           str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
 
     time2 = time.time() - time1
@@ -315,7 +311,7 @@ def main():
     my_log('Stage II Training time: ' + str(time2 - start_time) + ' sec')
     my_log('Total Training time:   ' + str(time.time() - start_time) + ' sec')
 
-
+    plt.figure(figsize=(8, 6), dpi=300)
     plt.plot(np.arange(0, args.epoch_i + args.epoch_ii + 1), loss_list)
     plt.xlabel('training steps')
     plt.ylabel('loss')
@@ -330,17 +326,19 @@ def main():
     print(flow.reparametrize.covariance())
 
     r_range, ang_dist = holo.angular_distance(1)
+    plt.figure(figsize=(8, 6), dpi=300)
     plt.plot(np.log(r_range), ang_dist)
-    plt.xlabel(r'$\ln r$')
+    plt.xlabel(r'$\ln |x-y|$')
     plt.ylabel('angular distancce')
-    plt.savefig('TEST_angular_distance.png')
+    plt.savefig(args.name +'_angular_distance.png')
     plt.close()
 
     r_range, rad_dist = holo.radial_distance()
+    plt.figure(figsize=(8, 6), dpi=300)
     plt.plot(r_range, rad_dist)
-    plt.xlabel(r'$r$')
+    plt.xlabel(r'$|x-y|$')
     plt.ylabel('radial distancce')
-    plt.savefig('TEST_radial_distance.png')
+    plt.savefig(args.name + '_radial_distance.png')
     plt.close()
 
 
