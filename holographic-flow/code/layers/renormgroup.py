@@ -4,17 +4,10 @@ from torch import nn
 from .flow import Flow
 
 
-class EHM(Flow):
-    def __init__(self,
-                 scaling,
-                 unitary,
-                 activation,
-                 prior=None):
+class RenormGroup(Flow):
+    def __init__(self, layers: list, prior=None):
         super().__init__(prior)
-        self.layers = nn.ModuleList([activation, 
-                                     unitary, 
-                                     scaling
-                                    ])
+        self.layers = nn.ModuleList(layers)
 
     def forward(self, x):
         ldj = x.new_zeros(x.shape[0], dtype=torch.get_default_dtype())

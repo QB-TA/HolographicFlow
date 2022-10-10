@@ -1,14 +1,9 @@
-from .arflow import ARFlow, ARFlowReshape
 from .flow import Flow
 from .hierarchy import HierarchyBijector
-from .masked_resnet import MaskedResNet
 from .mera import MERA
-from .resnet import ResNet, ResNetReshape
-from .rnvp import RNVP
-from .scale import Scale
-from .swish import Swish
-from .ehm import EHM
-from .scaling import Scaling
-from .unitary import Unitary
+
+from .renormgroup import RenormGroup
 from .activation import Activation
+from .linearmap import LinearMap
+from .scaling import Scaling
 from .correlated_gaussian import CorrelatedGaussian

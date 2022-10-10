@@ -50,26 +50,31 @@ class MatrixExponential(nn.Module):
         return torch.matrix_exp(X)
 
 
-class Unitary(nn.Module):
+class LinearMap(nn.Module):
     def __init__(self, type):
         super().__init__()
         self.type = type
         n = args.kernel_size ** 2
+
+        if self.type == 'disentangler':
+            self.linear_map = args.disentangler
+        elif self.type == 'decimator':
+            self.linear_map = args.decimator
         
         #Implements a general O(4) trafo.
-        if args.unitary == 'linear' or args.unitary == 'cayley' or args.unitary == 'exp':
+        if self.linear_map == 'linear' or self.linear_map == 'cayley' or self.linear_map == 'exp':
             if args.complex: 
                 dtype = torch.complex64
             else: dtype = torch.float32
-            self.unitary = nn.Linear(n, n, bias=False, dtype=dtype)
+            self.linear = nn.Linear(n, n, bias=False, dtype=dtype)
             
-            if args.unitary == 'cayley':
-                parametrize.register_parametrization(self.unitary, "weight", Skew())
-                parametrize.register_parametrization(self.unitary, "weight", CayleyMap(n))
+            if self.linear_map == 'cayley':
+                parametrize.register_parametrization(self.linear, "weight", Skew())
+                parametrize.register_parametrization(self.linear, "weight", CayleyMap(n))
             
-            if args.unitary == 'exp':
-                parametrize.register_parametrization(self.unitary, "weight", Skew())
-                parametrize.register_parametrization(self.unitary, "weight", MatrixExponential())
+            if self.linear_map == 'exp':
+                parametrize.register_parametrization(self.linear, "weight", Skew())
+                parametrize.register_parametrization(self.linear, "weight", MatrixExponential())
             
             if self.type == 'decimator':
                 w_init = torch.tensor([[1.,  0.,  1.,  0.],
@@ -82,29 +87,28 @@ class Unitary(nn.Module):
                                        [0., 0., 1., 0.],
                                        [0., 1., 0., 0.],
                                        [0., 0., 0., 1.]], dtype=dtype)
+            #nn.init.zeros_(self.linear.bias)
+            if self.linear_map == 'linear':
+                self.linear.weight = nn.Parameter(w_init)
 
-            #nn.init.zeros_(self.unitary.bias)
-            if args.unitary == 'linear':
-                self.unitary.weight = nn.Parameter(w_init)
+            #if self.linear_map == 'cayley' and self.type == 'decimator':
+            #    self.linear.weight = w_init
 
-            #if args.unitary == 'cayley' and self.type == 'decimator':
-            #    self.unitary.weight = w_init
-
-        if args.unitary == 'emlp' or args.unitary == 'emlp_sp':
+        if self.linear_map == 'emlp' or self.linear_map == 'emlp_sp':
             #uses the EMLP package to make an Equivariant Linear Layer
-            if args.unitary == 'emlp': 
+            if self.linear_map == 'emlp': 
                 if args.complex: G = U(n)
                 else: G = O(n)
-            if args.unitary == 'emlp_sp':
+            if self.linear_map == 'emlp_sp':
                 if args.complex: G = SU(n)
                 else: G = SO(n)
-            self.unitary = EquivarLinear(Vector(G), Vector(G))
-            nn.init.zeros_(self.unitary.bias)
-            self.unitary.bias.requires_grad = False
+            self.linear = EquivarLinear(Vector(G), Vector(G))
+            nn.init.zeros_(self.linear.bias)
+            self.linear.bias.requires_grad = False
             if args.complex:
-                self.unitary.to(torch.complex64)
+                self.linear.to(torch.complex64)
 
-        if args.unitary == 'o2_stack':
+        if self.linear_map == 'o2_stack':
         #Implements O(4) as 2 stacked O(2) trafos
             self.theta1 = nn.Parameter(torch.Tensor(4))
             self.theta2 = nn.Parameter(torch.Tensor(4))
@@ -172,7 +176,7 @@ class Unitary(nn.Module):
     
     def forward(self, x):
         ldj = x.new_zeros(x.shape[0])
-        if args.unitary == 'o2_stack':
+        if self.linear_map == 'o2_stack':
             if self.type == 'decimator':
                 x = self._forward('one', self.theta1, x)
                 x = self._forward('two', self.theta2, x)
@@ -182,7 +186,8 @@ class Unitary(nn.Module):
         else:
             oldshape = x.shape
             x = x.view(x.shape[0], -1)
-            inv_weight = torch.linalg.inv(self.unitary.weight)
+            inv_weight = torch.linalg.inv(self.linear.weight)
+            x = x - self.linear.bias
             x = x @ inv_weight.T
             x = x.view(oldshape)
             _, logdet = torch.linalg.slogdet(inv_weight)
@@ -192,7 +197,7 @@ class Unitary(nn.Module):
     def inverse(self, z):
         inv_ldj = z.new_zeros(z.shape[0])
 
-        if args.unitary == 'o2_stack':
+        if self.linear_map == 'o2_stack':
             if self.type == 'decimator':
                 z = self._inverse('two', self.theta2, z)
                 z = self._inverse('one', self.theta1, z)
@@ -202,8 +207,8 @@ class Unitary(nn.Module):
         else:
             oldshape = z.shape
             z = z.view(z.shape[0], -1)
-            z = self.unitary(z)
+            z = self.linear(z)
             z = z.view(oldshape)
-            _, logdet = torch.linalg.slogdet(self.unitary.weight)
+            _, logdet = torch.linalg.slogdet(self.linear.weight)
             inv_ldj += logdet
         return z, inv_ldj

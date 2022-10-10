@@ -36,65 +36,12 @@ def get_prior(temperature=1):
     return prior
 
 
-def build_rnvp(nchannels, kernel_size, nlayers, nresblocks, nmlp, nhidden):
-    core_size = nchannels * kernel_size**2
-    widths = [core_size] + [nhidden] * nmlp + [core_size]
-    net = layers.RNVP(
-        [
-            layers.ResNetReshape(
-                nresblocks,
-                widths,
-                final_scale=True,
-                final_tanh=True,
-            ) for _ in range(nlayers)
-        ],
-        [
-            layers.ResNetReshape(
-                nresblocks,
-                widths,
-                final_scale=True,
-                final_tanh=False,
-            ) for _ in range(nlayers)
-        ],
-        nchannels,
-        kernel_size,
-    )
-    return net
-
-
-def build_arflow(nchannels, kernel_size, nlayers, nresblocks, nmlp, nhidden):
-    assert nhidden % kernel_size**2 == 0
-    channels = [nchannels] + [nhidden // kernel_size**2] * nmlp + [nchannels]
-    width = kernel_size**2
-    net = layers.ARFlowReshape(
-        [
-            layers.MaskedResNet(
-                nresblocks,
-                channels,
-                width,
-                final_scale=True,
-                final_tanh=True,
-            ) for _ in range(nlayers)
-        ],
-        [
-            layers.MaskedResNet(
-                nresblocks,
-                channels,
-                width,
-                final_scale=True,
-                final_tanh=False,
-            ) for _ in range(nlayers)
-        ],
-    )
-    return net
-
-
-def build_ehm(type):
-    net = layers.EHM(
-        layers.Scaling(),
-        layers.Unitary(type),
-        layers.Activation()
-    )
+def build_rg_layer(type):
+    net = layers.RenormGroup(
+            [layers.Activation(),
+            layers.LinearMap(type),
+            layers.Activation()]
+            )
     return net
 
 
@@ -105,106 +52,39 @@ def build_mera():
         [args.nchannels, args.L, args.L], indexI, indexJ, mass=1.)
     _layers = []
     for i in range(args.depth):
-        if args.subnet == 'rnvp':
+        if i % 2 == 0:
             _layers.append(
-                build_rnvp(
-                    args.nchannels,
-                    args.kernel_size,
-                    args.nlayers_list[i],
-                    args.nresblocks_list[i],
-                    args.nmlp_list[i],
-                    args.nhidden_list[i],
-                ))
-        elif args.subnet == 'ar':
+                build_rg_layer('disentangler')
+                )
+        elif i % 2 == 1:
             _layers.append(
-                build_arflow(
-                    args.nchannels,
-                    args.kernel_size,
-                    args.nlayers_list[i],
-                    args.nresblocks_list[i],
-                    args.nmlp_list[i],
-                    args.nhidden_list[i],
-                ))
-        elif args.subnet == 'ehm':
-            if i % 2 == 0:
-                _layers.append(
-                    build_ehm('disentangler')
-                    )
-            elif i % 2 == 1:
-                _layers.append(
-                    build_ehm('decimator')
-                    )
-            
-        else:
-            raise ValueError('Unknown subnet: {}'.format(args.subnet))
+                build_rg_layer('decimator')
+                )
 
     flow = layers.MERA(_layers, args.L, args.kernel_size, reparametrize, prior)
     flow = flow.to(args.device)
 
     return flow
 
-
-def do_plot(flow, epoch_idx):
-    flow.train(False)
-
-    # When using multiple GPUs, each GPU samples batch_size / device_count
-    sample, _ = flow.sample(args.batch_size // args.device_count)
-    my_log('plot min {:.3g} max {:.3g} mean {:.3g} std {:.3g}'.format(
-        sample.min().item(),
-        sample.max().item(),
-        sample.mean().item(),
-        sample.std().item(),
-    ))
-    sample, _ = utils.logit_transform(sample, inverse=True)
-    sample = torch.clamp(sample, 0, 1)
-    sample = sample.permute(0, 2, 3, 1).detach().cpu().numpy()
-
-    fig, axes = plot_samples_np(sample)
-
-    fig.suptitle('{}/{}/epoch{}'.format(args.data, args.net_name, epoch_idx))
-    my_tight_layout(fig)
-    plot_filename = '{}/epoch{}.pdf'.format(args.plot_filename, epoch_idx)
-    utils.ensure_dir(plot_filename)
-    fig.savefig(plot_filename, bbox_inches='tight')
-    fig.clf()
-    plt.close()
-
-    flow.train(True)
-
-def plot_qft_complex_plane(flow, row=1, col=1, name=''):
+def plot_qft_complex_plane(flow, n=1, name=''):
     #Plotting field distribution in complex plane
     flow.train(False)
 
-    n = int(row*col)
     qft_config = flow.sample(n)[0]
 
-    if row == 1 and col == 1:
-        phi_real = qft_config[0,0,:,:].real.flatten().cpu().detach().numpy()
-        phi_imag = qft_config[0,0,:,:].imag.flatten().cpu().detach().numpy()
-        plt.figure(figsize=(10, 10), dpi=150)
-        plt.xlabel(r'Re($\psi$)')
-        plt.ylabel(r'Im($\psi$)')
-        plt.axes().set_aspect('equal')
-        plt.xlim((-2.1, 2.1))
-        plt.ylim((-2.1, 2.1))
-        plt.scatter(phi_real[0], phi_imag[0], s=1)   
-    
-    else:
-        plt.xlim((-2.1, 2.1))
-        plt.ylim((-2.1, 2.1))
-        phi_real = []
-        phi_imag = []
-        for i in range(row*col):
-            phi_real.append(qft_config[i,0,:,:].real.flatten().cpu().detach().numpy())
-            phi_imag.append(qft_config[i,0,:,:].imag.flatten().cpu().detach().numpy())
-        fig, axs = plt.subplots(row, col, sharex=True, sharey=True, figsize=(10,10), dpi=150)
-        for i in range(row):
-            for j in range(col):
-                axs[i, j].scatter(phi_real[i*row+j], phi_imag[i*row+j], s=1)
+    phi_real = qft_config.real.flatten().cpu().detach().numpy()
+    phi_imag = qft_config.imag.flatten().cpu().detach().numpy()
 
-    plt.savefig(args.subnet + str(args.L) + '_' + str(args.unitary) + args.name + '_dist_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
+    plt.figure(figsize=(8, 8), dpi=150)
+    plt.xlim((-2.1, 2.1))
+    plt.ylim((-2.1, 2.1))
+    #plt.axes().set_aspect('equal')
+
+    plt.scatter(phi_real, phi_imag, s=1)   
+    plt.xlabel(r'Re($\psi$)')
+    plt.ylabel(r'Im($\psi$)')
+    plt.savefig(str(args.L) + '_' + str(args.disentangler) + str(args.decimator) + args.name + '_dist_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
     plt.close()
-
     flow.train(True)
 
 def plot_qft_configxy(flow, name=''):
@@ -219,14 +99,13 @@ def plot_qft_configxy(flow, name=''):
     y = np.arange(0, args.L)
     X, Y = np.meshgrid(x, y)
 
-    plt.figure(figsize=(10, 10), dpi=150)
-    plt.axes().set_aspect('equal')
+    plt.figure(figsize=(8, 8), dpi=150)
+    #plt.axes().set_aspect('equal')
 
     plt.quiver(X, Y, phi_real, phi_imag)
 
-    plt.savefig(args.subnet + str(args.L) + '_' + str(args.unitary) + args.name + '_config_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
+    plt.savefig(str(args.L) + '_' + str(args.disentangler) + str(args.decimator) + args.name + '_config_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
     plt.close()
-
     flow.train(True)
 
 def plot_two_point_fct(flow, name=''):
@@ -243,15 +122,15 @@ def plot_two_point_fct(flow, name=''):
         corr.append((np.mean(x_dir) + np.mean(y_dir))/2)
 
     plt.plot(np.arange(int(args.L/2)), corr)
-    plt.xlabel(r'$r_{ij}$')
-    plt.ylabel(r'$\langle \psi_i^\ast \psi_j \rangle$')
-    plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + 'two_point.png')
+    plt.xlabel(r'$|x-y|$')
+    plt.ylabel(r'$\langle \psi^\ast(x) \psi(y) \rangle$')
+    plt.savefig(str(args.L) + str(args.disentangler) + str(args.decimator)+ '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + 'two_point.png')
     plt.close()
     flow.train(True)
 
-def loss_holography(flow, k, m, lam):
+def loss_holography(flow, j, mu, lam, ext=0.):
     x, logprior, invldj = flow.sample(args.batch_size, prior=get_prior(temperature=1))
-    action_qft = utils.phi4_action(x, k, m, lam)
+    action_qft = utils.phi4_action(x, j, mu, lam, ext)
     loss = (action_qft + logprior - invldj) / args.L**2
     loss_mean = loss.mean()
     utils.check_nan(loss_mean)
@@ -264,47 +143,53 @@ def main():
     flow = build_mera()
     flow.train(True)
 
-    k = 1. / (2. * args.T)
-    r = -200.
-    m = 4*k + r
-    lam = -r/8.
+    rho = 1. #amplitude of boundary field, the radius of the minima circle
+    v0 = - 100. #value of the global minima
+    j_interact = 1. / (rho**2 * args.T)
+    lam = - v0 - j_interact
+    mu = j_interact - 2 * lam * rho**2
 
-    my_log('Network type: ' + str(args.subnet))
-    my_log('Unitary transformation: ' + str(args.unitary))
+    # old param for T = 0.1
+    j_interact = 5.
+    mu = -180.
+    lam = 25.
+
+    my_log('Disentangler: ' + str(args.disentangler))
+    my_log('Decimator: ' + str(args.decimator))
     my_log('Network depth: ' + str(args.depth))
     my_log('Number of parameters in each RG layer: {}'.format(
             [utils.get_nparams(layer) for layer in flow.layers]))
     
-    my_log('QFT parameters: T = ' + str(args.T) + '  ||  k = ' + str(k) + '  |  mass = ' + str(m) + '  |  lambda = ' + str(lam))
-    my_log('Size of boundary QFT: ' + str(args.L) + ' x ' + str(args.L))
-
+    my_log('\nSize of boundary QFT: ' + str(args.L) + ' x ' + str(args.L))
+    my_log('QFT parameters: T = ' + str(args.T) + '  |  ρ = ' + str(rho) + '  |  V₀ = ' + str(v0) + '  ||  J = ' + str(j_interact) + '  |  μ = ' + str(mu) + '  |  λ = ' + str(lam))
+    
     my_log('\nBatch size: ' + str(args.batch_size))
     loss_list = []
     start_time = time.time()
 
     ######################################################
 
-    print('\nTRAINING STAGE I')
+    my_log('\nTRAINING STAGE I')
 
     scaling = []
-    unitary = []
+    linear = []
     for pname, param in flow.named_parameters():
         if 'scale' in pname:
             scaling.append(param)
-        if 'unitary' in pname or 'theta' in pname:
-            unitary.append(param)
+        if 'linear' in pname or 'theta' in pname:
+            linear.append(param)
 
     if args.optimizer == 'sgd':
         optimizer = torch.optim.SGD([{'params':scaling, 'lr':1e-2}, 
-                                     {'params':unitary, 'lr':1e-4}])
+                                     {'params':linear, 'lr':1e-4}])
 
     if args.optimizer == 'adam':
         optimizer = torch.optim.Adam([{'params':scaling, 'lr':1e-2}, 
-                                     {'params':unitary, 'lr':1e-4}])
+                                     {'params':linear, 'lr':1e-4}])
     
     if args.optimizer == 'adamw':
         optimizer = torch.optim.AdamW([{'params':scaling, 'lr':1e-2}, 
-                                     {'params':unitary, 'lr':1e-4}])
+                                     {'params':linear, 'lr':1e-4}])
 
     #state = torch.load('{}/{}.state'.format('./saved_model/ehm' + str(args.L), 'T0.5DELETE_stage_ii_b1_10000'),
     #                   map_location=args.device)
@@ -313,44 +198,45 @@ def main():
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
 
     my_log('\nTraining step 0')
-    my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-    print(unitary)
+    my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+    #print(linear)
 
     for epoch_idx in range(1, args.epoch_i+1):
         optimizer.zero_grad()
         
-        loss = loss_holography(flow, k, m, lam)
+        loss = loss_holography(flow, j_interact, mu, lam)
         loss_list.append(loss.item())
 
         loss.backward()
         if args.clip_grad:
             clip_grad_norm_(scaling, args.clip_grad)
-            clip_grad_norm_(unitary, args.clip_grad)
+            clip_grad_norm_(linear, args.clip_grad)
         optimizer.step()
 
         #optimizer.param_groups[0]['lr'] += (1e-4 - 1e-2) * 2 / args.epoch_i
         if epoch_idx == int(args.epoch_i/3): optimizer.param_groups[0]['lr'] = 1e-3
         if epoch_idx == int(2*args.epoch_i/3): optimizer.param_groups[0]['lr'] = 1e-4
 
-        if epoch_idx % 10000 == 0:
+        if epoch_idx % args.print_step == 0:
             my_log('\nTraining step '+ str(epoch_idx))
-            my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            state = {'flow': flow.state_dict()}
-            torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
-                                          str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
-            plot_qft_complex_plane(flow, 2, 2, name='stage_i_' + str(epoch_idx))
-            plot_qft_configxy(flow, name='stage_i_' + str(epoch_idx))
-            print(unitary)
+            my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+            #state = {'flow': flow.state_dict()}
+            #torch.save(state,'{}/{}.state'.format('./saved_model/' + str(args.L),
+            #                              str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
+            #plot_qft_complex_plane(flow, name='stage_i_' + str(epoch_idx))
+            #plot_qft_configxy(flow, name='stage_i_' + str(epoch_idx))
+            #print(linear)
 
 
     state = {'flow': flow.state_dict()}
-    torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
-                                          str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
+    torch.save(state,'{}/{}.state'.format('./saved_model/' + str(args.L),
+                                          str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
 
     time1 = time.time() - start_time
 
-    plot_qft_complex_plane(flow, 2, 2, name='stage_i_' + str(args.epoch_i))
+    plot_qft_complex_plane(flow, name='stage_i_' + str(args.epoch_i))
     plot_qft_configxy(flow, name='stage_i_' + str(args.epoch_i))
+    plot_qft_complex_plane(flow, n=args.batch_size, name='symmetry_stage_i_' + str(args.epoch_i))
 
     ######################################################
 
@@ -370,7 +256,7 @@ def main():
         flow.reparametrize.cholesky.parametrizations.weight.original.requires_grad = True
         cov_init = torch.eye(args.L**2, device=args.device) + torch.full((args.L**2, args.L**2), 1e-2, device=args.device)
         flow.reparametrize.cholesky.parametrizations.weight.original = torch.nn.Parameter(cov_init)
-        if args.subnet == 'ehm':
+        if args.complex:
             flow.reparametrize.cholesky.to(torch.complex64)
 
     params2 = [x for x in flow.parameters() if x.requires_grad]
@@ -385,12 +271,13 @@ def main():
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
     
     my_log('\nTraining step ' + str(args.epoch_i))
-    my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
+    my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+    #print(flow.reparametrize.covariance())
 
     for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
         optimizer2.zero_grad()
 
-        loss = loss_holography(flow, k, m, lam)
+        loss = loss_holography(flow, j_interact, mu, lam)
         loss_list.append(loss.item())
 
         loss.backward()
@@ -398,27 +285,29 @@ def main():
             clip_grad_norm_(params2, args.clip_grad)
         optimizer2.step()
 
-        if epoch_idx % 10000 == 0:     
+        if epoch_idx % args.print_step == 0:     
             my_log('\nTraining step ' + str(epoch_idx))
-            my_log('loss = ' + str(loss_holography(flow, k, m, lam).item()))
-            torch.save(state,'{}/{}.state'.format('./saved_model/' + args.subnet + str(args.L),
-                                str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
-            plot_qft_complex_plane(flow, 2, 2, name='stage_ii_' + str(epoch_idx))
-            plot_qft_configxy(flow, 'stage_ii_' + str(epoch_idx))
-            print(params2)
-            print(flow.reparametrize.cholesky)
+            my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+            #torch.save(state,'{}/{}.state'.format('./saved_model/' + str(args.L),
+            #                    str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(epoch_idx)))
+            #plot_qft_complex_plane(flow, name='stage_ii_' + str(epoch_idx))
+            #plot_qft_configxy(flow, 'stage_ii_' + str(epoch_idx))
+            #print(flow.reparametrize.covariance())
     
-    final_loss = loss_holography(flow, k, m, lam)
+    final_loss = loss_holography(flow, j_interact, mu, lam)
     loss_list.append(final_loss.item())
 
+    flow.train(False)
+
     state = {'flow': flow.state_dict()}
-    torch.save(state,'{}/{}.state'.format('./saved_model/'+args.subnet+str(args.L),
-                                          str(args.unitary) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
+    torch.save(state,'{}/{}.state'.format('./saved_model/'+str(args.L),
+                                          str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
 
     time2 = time.time() - time1
 
-    plot_qft_complex_plane(flow, 2, 2, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_qft_complex_plane(flow, name='stage_ii_' + str(args.epoch_i + args.epoch_ii))
     plot_qft_configxy(flow, 'stage_ii_' + str(args.epoch_i + args.epoch_ii))
+    plot_qft_complex_plane(flow, n=args.batch_size, name='symmetry_stage_ii_' + str(args.epoch_i))
 
     ######################################################
 
@@ -430,103 +319,29 @@ def main():
     plt.plot(np.arange(0, args.epoch_i + args.epoch_ii + 1), loss_list)
     plt.xlabel('training steps')
     plt.ylabel('loss')
-    plt.savefig(args.subnet + str(args.L) + str(args.unitary) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
+    plt.savefig(str(args.L) + str(args.disentangler) + str(args.decimator) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
     plt.close()
 
     plot_two_point_fct(flow)
 
-    """
-    start_time = time.time()
+    holo = HolographicDistance(flow)
 
-    utils.init_out_dir()
-    last_epoch = utils.get_last_checkpoint_step()
-    if last_epoch >= args.epoch:
-        exit()
-    if last_epoch >= 0:
-        my_log(f'\nCheckpoint found: {last_epoch}\n')
-    else:
-        utils.clear_log()
-    utils.print_args()
+    print('\nCovariance matrix:')
+    print(flow.reparametrize.covariance())
 
-    flow = build_mera()
-    flow.train(True)
-    my_log('nparams in each RG layer: {}'.format(
-        [utils.get_nparams(layer) for layer in flow.layers]))
-    my_log(f'Total nparams: {utils.get_nparams(flow)}')
+    r_range, ang_dist = holo.angular_distance(1)
+    plt.plot(np.log(r_range), ang_dist)
+    plt.xlabel(r'$\ln r$')
+    plt.ylabel('angular distancce')
+    plt.savefig('TEST_angular_distance.png')
+    plt.close()
 
-    # Use multiple GPUs
-    if args.cuda and torch.cuda.device_count() > 1:
-        flow = utils.data_parallel_wrap(flow)
-
-    params = [x for x in flow.parameters() if x.requires_grad]
-    optimizer = torch.optim.AdamW(params,
-                                  lr=args.lr,
-                                  weight_decay=args.weight_decay)
-
-    if last_epoch >= 0:
-        utils.load_checkpoint(last_epoch, flow, optimizer)
-
-    train_set, _, _ = utils.load_dataset()
-    train_loader = torch.utils.data.DataLoader(train_set,
-                                               args.batch_size,
-                                               shuffle=True,
-                                               num_workers=4,
-                                               pin_memory=True)
-
-    init_time = time.time() - start_time
-    my_log(f'init_time = {init_time:.3f}')
-
-    my_log('Training...')
-    start_time = time.time()
-    for epoch_idx in range(last_epoch + 1, args.epoch + 1):
-        for batch_idx, (x, _) in enumerate(train_loader):
-            optimizer.zero_grad()
-
-            x = x.to(args.device)
-            x, ldj_logit = utils.logit_transform(x)
-            log_prob = flow.log_prob(x)
-            loss = -(log_prob + ldj_logit) / (args.nchannels * args.L**2)
-            loss_mean = loss.mean()
-            loss_std = loss.std()
-
-            utils.check_nan(loss_mean)
-
-            loss_mean.backward()
-            if args.clip_grad:
-                clip_grad_norm_(params, args.clip_grad)
-            optimizer.step()
-
-            if args.print_step and batch_idx % args.print_step == 0:
-                bit_per_dim = (loss_mean.item() + log(256)) / log(2)
-                my_log(
-                    'epoch {} batch {} bpp {:.8g} loss {:.8g} +- {:.8g} time {:.3f}'
-                    .format(
-                        epoch_idx,
-                        batch_idx,
-                        bit_per_dim,
-                        loss_mean.item(),
-                        loss_std.item(),
-                        time.time() - start_time,
-                    ))
-
-        if (args.out_filename and args.save_epoch
-                and epoch_idx % args.save_epoch == 0):
-            state = {
-                'flow': flow.state_dict(),
-                'optimizer': optimizer.state_dict(),
-            }
-            torch.save(state, f'{args.out_filename}_save/{epoch_idx}.state')
-
-            last_epoch = epoch_idx - args.save_epoch
-            if (last_epoch > 0 and args.keep_epoch
-                    and last_epoch % args.keep_epoch != 0):
-                os.remove(f'{args.out_filename}_save/{last_epoch}.state')
-
-        if (args.plot_filename and args.plot_epoch
-                and epoch_idx % args.plot_epoch == 0):
-            with torch.no_grad():
-                do_plot(flow, epoch_idx)
-    """
+    r_range, rad_dist = holo.radial_distance()
+    plt.plot(r_range, rad_dist)
+    plt.xlabel(r'$r$')
+    plt.ylabel('radial distancce')
+    plt.savefig('TEST_radial_distance.png')
+    plt.close()
 
 
 if __name__ == '__main__':

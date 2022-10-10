@@ -57,13 +57,11 @@ class HolographicDistance():
                     I2 = np.delete(I2, k)
                     J2 = np.delete(J2, k)
 
-            print(I1, I2)
             for m in range(len(I1)):
                 for n in range(len(I2)):
                         dist.append(self.geodesic_distance(I1[m],J1[m], I2[n],J2[n], cov))
  
-            if dist:
-                ang_dist.append(np.mean(dist))
+            ang_dist.append(np.mean(dist))
 
         return r_range, ang_dist
 
@@ -80,7 +78,6 @@ class HolographicDistance():
         rad_dist = []
 
         for r in r_range:
-            print('r =', r)
             l1 = 0
             l2 = int(l1 + r)
             I1 = self.flow.indexI [int(l1 + 1)] [0]
@@ -98,19 +95,16 @@ class HolographicDistance():
                     I2 = np.delete(I2, k)
                     J2 = np.delete(J2, k)
 
-            print(I1, I2)
-            print(J1, J2)
             for m in range(len(I1)):
                 for n in range(len(I2)):
                         dist.append(self.geodesic_distance(I1[m],J1[m], I2[n],J2[n], cov))
 
-            if dist:
-                rad_dist.append(np.mean(dist))
+            rad_dist.append(np.mean(dist))
 
         return r_range, rad_dist
 
     def two_point(self, i1, j1, i2, j2):
-        qft_config = self.flow.sample(args.L**2)[0]
+        qft_config = self.flow.sample(args.batch_size)[0]
         two_point = qft_config[:, 0, i1, j1].conj() * qft_config[:, 0, i2, j2]
         return two_point.mean()
     
