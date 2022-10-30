@@ -49,7 +49,7 @@ def build_mera():
     prior = get_prior()
     indexI, indexJ = layers.mera.mera_indices(args.L, args.kernel_size)
     reparametrize = layers.CorrelatedGaussian(
-        [args.nchannels, args.L, args.L], indexI, indexJ, mass=1.)
+        [args.nchannels, args.L, args.L], indexI, indexJ)
     _layers = []
     for i in range(args.depth):
         if i % 2 == 0:
@@ -60,7 +60,6 @@ def build_mera():
             _layers.append(
                 build_rg_layer('decimator')
                 )
-
     flow = layers.MERA(_layers, args.L, args.kernel_size, reparametrize, prior)
     flow = flow.to(args.device)
 
@@ -83,7 +82,7 @@ def plot_qft_complex_plane(flow, n=1, name=''):
     plt.scatter(phi_real, phi_imag, s=1)   
     plt.xlabel(r'Re($\psi$)')
     plt.ylabel(r'Im($\psi$)')
-    plt.savefig(str(args.L) + '_' + str(args.disentangler) + str(args.decimator) + args.name + '_dist_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
+    plt.savefig(str(args.L) + '_' + str(args.disentangler) + '_' + str(args.decimator) + args.name + '_dist_T' + str(args.T) + '_b' + str(args.batch_size) + '_' + name + '.png')
     plt.close()
     flow.train(True)
 
@@ -108,7 +107,7 @@ def plot_qft_configxy(flow, name=''):
     plt.close()
     flow.train(True)
 
-def plot_two_point_fct(flow, name=''):
+def plot_two_point_fct(flow, two_point='real', plot_type='log-linear', name=''):
     flow.train(False)
     holo = HolographicDistance(flow)
     corr = []
@@ -117,43 +116,90 @@ def plot_two_point_fct(flow, name=''):
         y_dir = []
         for i in range(args.L):
             for j in range(args.L):
-                x_dir.append(holo.two_point(i,j,i,(j+r)%args.L).item().real)
-                y_dir.append(holo.two_point(i,j,(i+r)%args.L,j).item().real)
+                if two_point == 'real':
+                    x_dir.append(holo.two_point(i,j,i,(j+r)%args.L).real.item())
+                    y_dir.append(holo.two_point(i,j,(i+r)%args.L,j).real.item())
+                elif two_point == 'imag':
+                    x_dir.append(holo.two_point(i,j,i,(j+r)%args.L).imag.item())
+                    y_dir.append(holo.two_point(i,j,(i+r)%args.L,j).imag.item())
+                elif two_point == 'abs':
+                    x_dir.append(holo.two_point(i,j,i,(j+r)%args.L).abs().item())
+                    y_dir.append(holo.two_point(i,j,(i+r)%args.L,j).abs().item())
+                else: 
+                    raise RuntimeError('two_point has to be real, imag or abs')
         corr.append((np.mean(x_dir) + np.mean(y_dir))/2)
 
     plt.figure(figsize=(7, 7), dpi=300)
-    plt.plot(np.arange(int(args.L/2)), corr)
-    plt.xlabel(r'$|x-y|$')
-    plt.ylabel(r'$\langle |\psi^\ast(x) \psi(y)| \rangle$')
-    plt.savefig(str(args.L) + str(args.disentangler) + str(args.decimator)+ '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + 'two_point.png')
+
+    if plot_type == 'linear-linear':
+        plt.scatter(np.arange(int(args.L/2)), corr)
+        plt.xlabel(r'$|x-y|$')
+        if two_point == 'real':
+            plt.ylabel(r'$Re \langle \psi^\ast_x \psi_y \rangle$')
+        elif two_point == 'imag':
+            plt.ylabel(r'$Im \langle \psi^\ast_x \psi_y| \rangle$')
+        elif two_point == 'abs':
+            plt.ylabel(r'$|\langle \psi^\ast_x \psi_y \rangle|$')
+
+    elif plot_type == 'log-linear':
+        plt.scatter(np.arange(int(args.L/2)), np.log(corr))
+        plt.xlabel(r'$|x-y|$')
+        if two_point == 'real':
+            plt.ylabel(r'$\log Re \langle \psi^\ast_x \psi_y \rangle$')
+        elif two_point == 'imag':
+            plt.ylabel(r'$\log Im \langle \psi^\ast_x \psi_y| \rangle$')
+        elif two_point == 'abs':
+            plt.ylabel(r'$\log |\langle \psi^\ast_x \psi_y \rangle|$')
+            
+    elif plot_type == 'log-log':
+        plt.scatter(np.log(np.arange(int(args.L/2))), np.log(corr))
+        plt.xlabel(r'$log|x-y|$')
+        if two_point == 'real':
+            plt.ylabel(r'$\log Re \langle \psi^\ast_x \psi_y \rangle$')
+        elif two_point == 'imag':
+            plt.ylabel(r'$\log Im \langle \psi^\ast_x \psi_y| \rangle$')
+        elif two_point == 'abs':
+            plt.ylabel(r'$\log |\langle \psi^\ast_x \psi_y \rangle|$')
+    else: 
+        raise RuntimeError('plot_type has to be log-linear or log-log')
+
+
+
+    plt.savefig(str(args.L) + str(args.disentangler) + '_' +str(args.decimator)+ '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + plot_type +two_point+ 'two_point.png')
     plt.close()
     flow.train(True)
 
-def loss_holography(flow, j, mu, lam, ext=0.):
+def loss_holography(flow, k, mu, lam, ext=0.):
     x, logprior, invldj = flow.sample(args.batch_size, prior=get_prior(temperature=1))
-    action_qft = utils.phi4_action(x, j, mu, lam, ext)
-    loss = (action_qft + logprior - invldj) / args.L**2
+    action_qft = utils.phi4_action(x, k, mu, lam, ext)
+    loss = (logprior - 2*invldj + action_qft) / args.L**2
     loss_mean = loss.mean()
     utils.check_nan(loss_mean)
     return loss_mean
 
 def main():
+    if torch.cuda.device_count() < 1: raise RuntimeError('no GPU')
     start_time = time.time()
     utils.init_out_dir()
 
     flow = build_mera()
     flow.train(True)
 
-    rho = 1. #amplitude of boundary field, the radius of the minima circle
-    v0 = - 100. #value of the global minima
-    j_interact = 1. / (rho**2 * args.T)
-    lam = - v0 - j_interact
-    mu = j_interact - 2 * lam * rho**2
+    #rho = 1. #amplitude of boundary field, the radius of the minima circle
+    #v0 = - 200. #value of the global minima
+    #k = 1. / (rho**2 * args.T)
+    #lam = - v0 - k
+    #mu = k - 2 * lam * rho**2
 
-    # old param for T = 0.1
-    j_interact = 5.
+    # old param for T = 0.05
+    k = 5.
     mu = -180.
     lam = 25.
+
+    # old param for T = 0.25
+    #k = 1.
+    #mu = -196.
+    #lam = 25.
 
     my_log('Disentangler: ' + str(args.disentangler))
     my_log('Decimator: ' + str(args.decimator))
@@ -162,7 +208,7 @@ def main():
             [utils.get_nparams(layer) for layer in flow.layers]))
     
     my_log('\nSize of boundary QFT: ' + str(args.L) + ' x ' + str(args.L))
-    my_log('QFT parameters: T = ' + str(args.T) + '  |  ρ = ' + str(rho) + '  |  V₀ = ' + str(v0) + '  ||  J = ' + str(j_interact) + '  |  μ = ' + str(mu) + '  |  λ = ' + str(lam))
+    my_log('QFT parameters: J = ' + str(k) + '  |  μ = ' + str(mu) + '  |  λ = ' + str(lam))
     
     my_log('\nBatch size: ' + str(args.batch_size))
     loss_list = []
@@ -199,13 +245,13 @@ def main():
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
 
     my_log('\nTraining step 0')
-    my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+    my_log('loss = ' + str(loss_holography(flow, k, mu, lam).item()))
     #print(linear)
 
     for epoch_idx in range(1, args.epoch_i+1):
         optimizer.zero_grad()
         
-        loss = loss_holography(flow, j_interact, mu, lam)
+        loss = loss_holography(flow, k, mu, lam)
         loss_list.append(loss.item())
 
         loss.backward()
@@ -220,7 +266,7 @@ def main():
 
         if epoch_idx % args.print_step == 0:
             my_log('\nTraining step '+ str(epoch_idx))
-            my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+            my_log('loss = ' + str(loss_holography(flow, k, mu, lam).item()))
             #plot_qft_complex_plane(flow, name='stage_i_' + str(epoch_idx))
             #plot_qft_configxy(flow, name='stage_i_' + str(epoch_idx))
             #print(linear)
@@ -228,7 +274,7 @@ def main():
 
     state = {'flow': flow.state_dict()}
     torch.save(state,'{}/{}.state'.format('./saved_model/' + 'rg' + str(args.L),
-                                          str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
+                                          str(args.disentangler) + '_' + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_i_b' + str(args.batch_size)+ '_' + str(args.epoch_i)))
 
     time1 = time.time() - start_time
 
@@ -252,10 +298,9 @@ def main():
     if args.reparametrize == 'positive_definite':
         #flow.reparametrize.cholesky.bias.requires_grad = True
         flow.reparametrize.cholesky.parametrizations.weight.original.requires_grad = True
-        cov_init = torch.eye(args.L**2, device=args.device) + torch.full((args.L**2, args.L**2), 1e-2, device=args.device)
+        #cov_init = torch.eye(args.L**2, device=args.device) + torch.full((args.L**2, args.L**2), 1e-2, device=args.device)
+        cov_init = torch.eye(args.L**2, device=args.device) + torch.tril(torch.randn((args.L**2, args.L**2), dtype=torch.complex64, device=args.device)/10, -1)
         flow.reparametrize.cholesky.parametrizations.weight.original = torch.nn.Parameter(cov_init)
-        if args.complex:
-            flow.reparametrize.cholesky.to(torch.complex64)
 
     params2 = [x for x in flow.parameters() if x.requires_grad]
 
@@ -269,13 +314,13 @@ def main():
     my_log('Number of parameters: {}'.format(utils.get_nparams(flow)))
     
     my_log('\nTraining step ' + str(args.epoch_i))
-    my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+    my_log('loss = ' + str(loss_holography(flow, k, mu, lam).item()))
     #print(flow.reparametrize.covariance())
 
     for epoch_idx in range(args.epoch_i+1, args.epoch_i+args.epoch_ii+1):
         optimizer2.zero_grad()
 
-        loss = loss_holography(flow, j_interact, mu, lam)
+        loss = loss_holography(flow, k, mu, lam, ext=100+100j)
         loss_list.append(loss.item())
 
         loss.backward()
@@ -285,19 +330,19 @@ def main():
 
         if epoch_idx % args.print_step == 0:     
             my_log('\nTraining step ' + str(epoch_idx))
-            my_log('loss = ' + str(loss_holography(flow, j_interact, mu, lam).item()))
+            my_log('loss = ' + str(loss_holography(flow, k, mu, lam).item()))
             #plot_qft_complex_plane(flow, name='stage_ii_' + str(epoch_idx))
             #plot_qft_configxy(flow, 'stage_ii_' + str(epoch_idx))
             #print(flow.reparametrize.covariance())
     
-    final_loss = loss_holography(flow, j_interact, mu, lam)
+    final_loss = loss_holography(flow, k, mu, lam)
     loss_list.append(final_loss.item())
 
     flow.train(False)
 
     state = {'flow': flow.state_dict()}
     torch.save(state,'{}/{}.state'.format('./saved_model/' + 'rg' + str(args.L),
-                                          str(args.disentangler) + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_ii)))
+                                          str(args.disentangler) + '_' + str(args.decimator) + 'T' + str(args.T) + args.name + '_stage_ii_b' + str(args.batch_size)+ '_' + str(args.epoch_i + args.epoch_ii)))
 
     time2 = time.time() - time1
 
@@ -315,10 +360,19 @@ def main():
     plt.plot(np.arange(0, args.epoch_i + args.epoch_ii + 1), loss_list)
     plt.xlabel('training steps')
     plt.ylabel('loss')
-    plt.savefig(str(args.L) + str(args.disentangler) + str(args.decimator) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
+    plt.savefig(str(args.L) + str(args.disentangler) + '_' + str(args.decimator) + '_' + 'T' + str(args.T) + args.name + '_b' + str(args.batch_size) + '_loss.png')
     plt.close()
 
-    plot_two_point_fct(flow)
+    for param in flow.parameters():
+        param.requires_grad = False
+
+    plot_two_point_fct(flow, two_point='real', plot_type='linear-linear')
+    plot_two_point_fct(flow, two_point='imag', plot_type='linear-linear')
+    plot_two_point_fct(flow, two_point='abs', plot_type='linear-linear')
+    plot_two_point_fct(flow, two_point='real', plot_type='log-linear')
+    plot_two_point_fct(flow, two_point='imag', plot_type='log-linear')
+    plot_two_point_fct(flow, two_point='abs', plot_type='log-linear')
+
 
     holo = HolographicDistance(flow)
 
@@ -327,20 +381,23 @@ def main():
 
     r_range, ang_dist = holo.angular_distance(1)
     plt.figure(figsize=(8, 6), dpi=300)
-    plt.plot(np.log(r_range), ang_dist)
+    plt.scatter(np.log(r_range), ang_dist)
     plt.xlabel(r'$\ln |x-y|$')
     plt.ylabel('angular distancce')
-    plt.savefig(args.name +'_angular_distance.png')
+    plt.savefig(str(args.name) + str(args.disentangler) + '_' + str(args.decimator) + '_angular_distance1.png')
     plt.close()
 
     r_range, rad_dist = holo.radial_distance()
     plt.figure(figsize=(8, 6), dpi=300)
-    plt.plot(r_range, rad_dist)
+    plt.scatter(r_range, rad_dist)
     plt.xlabel(r'$|x-y|$')
     plt.ylabel('radial distancce')
-    plt.savefig(args.name + '_radial_distance.png')
+    plt.savefig(str(args.name) + str(args.disentangler) + '_' + str(args.decimator) + '_radial_distance.png')
     plt.close()
 
+    plot_two_point_fct(flow, two_point='abs', plot_type='log-log')
+    plot_two_point_fct(flow, two_point='real', plot_type='log-log')
+    plot_two_point_fct(flow, two_point='imag', plot_type='log-log')
 
 if __name__ == '__main__':
     try:
