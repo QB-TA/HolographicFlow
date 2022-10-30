@@ -31,6 +31,32 @@ class Flow(nn.Module):
             x = torch.complex(x[:,0,:,:], x[:,1:,:])
         return x, logp, inv_ldj
 
+    def sample_bulk(self, batch_size, prior=None):
+        if prior is None:
+            prior = self.prior
+        assert prior is not None
+        z = prior.sample(batch_size)
+        if self.reparametrize != None:
+            z, _ = self.reparametrize.inverse(z)
+        if args.complex and z.dtype == torch.float32:
+            z = torch.complex(z[:,0,:,:], z[:,1:,:])
+        return z
+
+    def sample_layer(self, batch_size, rg_steps, prior=None):
+        if prior is None:
+            prior = self.prior
+        assert prior is not None
+        z = prior.sample(batch_size)
+        logp = prior.log_prob(z)
+        if self.reparametrize != None:
+            z, logp_ = self.reparametrize.inverse(z)
+        x, inv_ldj = self.inverse_rgflow(z, rg_steps)
+        if self.reparametrize != None:
+            inv_ldj = logp_+inv_ldj
+        if args.complex and x.dtype == torch.float32:
+            x = torch.complex(x[:,0,:,:], x[:,1:,:])
+        return x, logp, inv_ldj
+
     def log_prob(self, x):
         z, logp = self.forward(x)
         if self.prior is not None:
