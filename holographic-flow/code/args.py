@@ -38,14 +38,14 @@ group.add_argument(
     '--disentangler',
     type=str,
     default='linear',
-    choices=['linear', 'cayley', 'exp', 'emlp', 'emlp_sp', 'o2_stack'],
+    choices=['linear', 'su_cayley', 'su_exp', 'u_emlp', 'su_emlp', 'o2_stack'],
     help='type of transformation for disentanglers',
 )
 group.add_argument(
     '--decimator',
     type=str,
-    default='linear',
-    choices=['linear', 'cayley', 'exp', 'emlp', 'emlp_sp', 'o2_stack'],
+    default='su_cayley',
+    choices=['linear', 'su_cayley', 'su_exp', 'u_emlp', 'su_emlp', 'o2_stack'],
     help='type of transformation for decimators',
 )
 group.add_argument(
@@ -77,7 +77,7 @@ group.add_argument(
 group.add_argument(
     '--T',
     type=float,
-    default=0.1,
+    default=0.5,
     help='temperature of the QFT',
 )
 
@@ -164,9 +164,6 @@ if args.complex_field == 'False':
 
 if args.decimator == 'o2_stack' or args.disentangler == 'o2_stack':
     args.kernel_size = 2
-
-if args.decimator == 'emlp' or args.disentangler == 'emlp_sp':
-    args.cuda = ''
 
 
 if args.cuda:

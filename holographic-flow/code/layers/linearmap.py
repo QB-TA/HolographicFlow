@@ -62,17 +62,17 @@ class LinearMap(nn.Module):
             self.linear_map = args.decimator
         
         #Implements a general O(4) trafo.
-        if self.linear_map == 'linear' or self.linear_map == 'cayley' or self.linear_map == 'exp':
+        if self.linear_map == 'linear' or self.linear_map == 'su_cayley' or self.linear_map == 'su_exp':
             if args.complex: 
                 dtype = torch.complex64
             else: dtype = torch.float32
             self.linear = nn.Linear(n, n, bias=False, dtype=dtype)
             
-            if self.linear_map == 'cayley':
+            if self.linear_map == 'su_cayley':
                 parametrize.register_parametrization(self.linear, "weight", Skew())
                 parametrize.register_parametrization(self.linear, "weight", CayleyMap(n))
             
-            if self.linear_map == 'exp':
+            if self.linear_map == 'su_exp':
                 parametrize.register_parametrization(self.linear, "weight", Skew())
                 parametrize.register_parametrization(self.linear, "weight", MatrixExponential())
             
@@ -88,18 +88,18 @@ class LinearMap(nn.Module):
                                        [0., 1., 0., 0.],
                                        [0., 0., 0., 1.]], dtype=dtype)
             #nn.init.zeros_(self.linear.bias)
-            if self.linear_map == 'linear':
+            if self.linear_map == 'linear' and args.kernel_size == 2:
                 self.linear.weight = nn.Parameter(w_init)
 
-            #if self.linear_map == 'cayley' and self.type == 'decimator':
-            #    self.linear.weight = w_init
+            if self.linear_map == 'su_cayley' and self.type == 'decimator' and args.kernel_size == 2:
+                self.linear.weight = w_init
 
-        if self.linear_map == 'emlp' or self.linear_map == 'emlp_sp':
+        if self.linear_map == 'u_emlp' or self.linear_map == 'su_emlp':
             #uses the EMLP package to make an Equivariant Linear Layer
-            if self.linear_map == 'emlp': 
+            if self.linear_map == 'u_emlp': 
                 if args.complex: G = U(n)
                 else: G = O(n)
-            if self.linear_map == 'emlp_sp':
+            if self.linear_map == 'su_emlp':
                 if args.complex: G = SU(n)
                 else: G = SO(n)
             self.linear = EquivarLinear(Vector(G), Vector(G))
