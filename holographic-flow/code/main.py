@@ -366,13 +366,15 @@ def main():
     for param in flow.parameters():
         param.requires_grad = False
 
-    plot_two_point_fct(flow, two_point='real', plot_type='linear-linear')
+    #plot_two_point_fct(flow, two_point='real', plot_type='linear-linear')
     plot_two_point_fct(flow, two_point='imag', plot_type='linear-linear')
-    plot_two_point_fct(flow, two_point='abs', plot_type='linear-linear')
-    plot_two_point_fct(flow, two_point='real', plot_type='log-linear')
-    plot_two_point_fct(flow, two_point='imag', plot_type='log-linear')
-    plot_two_point_fct(flow, two_point='abs', plot_type='log-linear')
-
+    #plot_two_point_fct(flow, two_point='abs', plot_type='linear-linear')
+    #plot_two_point_fct(flow, two_point='real', plot_type='log-linear')
+    #plot_two_point_fct(flow, two_point='imag', plot_type='log-linear')
+    #plot_two_point_fct(flow, two_point='abs', plot_type='log-linear')
+    plot_two_point_fct(flow, two_point='abs', plot_type='log-log')
+    plot_two_point_fct(flow, two_point='real', plot_type='log-log')
+    #plot_two_point_fct(flow, two_point='imag', plot_type='log-log')
 
     holo = HolographicDistance(flow)
 
@@ -395,9 +397,7 @@ def main():
     plt.savefig(str(args.name) + str(args.disentangler) + '_' + str(args.decimator) + '_radial_distance.png')
     plt.close()
 
-    plot_two_point_fct(flow, two_point='abs', plot_type='log-log')
-    plot_two_point_fct(flow, two_point='real', plot_type='log-log')
-    plot_two_point_fct(flow, two_point='imag', plot_type='log-log')
+
 
 if __name__ == '__main__':
     try:
