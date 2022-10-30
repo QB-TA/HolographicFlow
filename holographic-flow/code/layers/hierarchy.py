@@ -1,4 +1,6 @@
+from re import L
 from torch import nn
+import torch
 
 import utils
 
@@ -8,8 +10,8 @@ from .flow import Flow
 class HierarchyBijector(Flow):
     def __init__(self, indexI, indexJ, layers, reparam_layer=None, prior=None):
         super().__init__(reparam_layer, prior)
-        assert len(layers) == len(indexI)
-        assert len(layers) == len(indexJ)
+        #assert len(layers) == len(indexI)
+        #assert len(layers) == len(indexJ)
         self.layers = nn.ModuleList(layers)
         self.indexI = indexI
         self.indexJ = indexJ
@@ -42,7 +44,7 @@ class HierarchyBijector(Flow):
                 list(zip(self.layers, self.indexI, self.indexJ))):
             z, z_ = utils.dispatch(indexI, indexJ, z)
             z_ = utils.stackRGblock(z_)
-
+            
             z_, log_prob = layer.inverse(z_)
             inv_ldj = inv_ldj + log_prob.view(batch_size, -1).sum(dim=1)
 
@@ -50,3 +52,48 @@ class HierarchyBijector(Flow):
             z = utils.collect(indexI, indexJ, z, z_)
 
         return z, inv_ldj.real
+
+    def inverse_scaleinvariant(self, z):
+        batch_size = z.shape[0]
+        inv_ldj = z.new_zeros(batch_size).real
+
+        odd = 1
+        for indexI, indexJ in reversed(
+                list(zip(self.indexI, self.indexJ))):
+            
+            index = int(odd%2)
+            layer = self.layer[index]
+            z, z_ = utils.dispatch(indexI, indexJ, z)
+            z_ = utils.stackRGblock(z_)
+            
+            z_, log_prob = layer.inverse(z_)
+            inv_ldj = inv_ldj + log_prob.view(batch_size, -1).sum(dim=1)
+
+            z_ = utils.unstackRGblock(z_, batch_size)
+            z = utils.collect(indexI, indexJ, z, z_)
+
+        return z, inv_ldj.real
+
+    def inverse_rgflow(self, z, rg_steps):
+        batch_size = z.shape[0]
+        inv_ldj = z.new_zeros(batch_size).real
+        
+        l = 0
+        max_layers = 2 * rg_steps
+        for layer, indexI, indexJ in reversed(
+                list(zip(self.layers, self.indexI, self.indexJ))):
+    
+            if l < max_layers:
+                z, z_ = utils.dispatch(indexI, indexJ, z)
+                z_ = utils.stackRGblock(z_)
+                
+                z_, log_prob = layer.inverse(z_)
+                inv_ldj = inv_ldj + log_prob.view(batch_size, -1).sum(dim=1)
+
+                z_ = utils.unstackRGblock(z_, batch_size)
+                z = utils.collect(indexI, indexJ, z, z_)
+
+            l += 1
+
+        return z, inv_ldj.real
+
