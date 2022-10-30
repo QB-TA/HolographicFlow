@@ -19,6 +19,9 @@ class CorrelatedGaussian(nn.Module):
         
         self.indexI, self.indexJ = self.seperate_scales(indexI, indexJ)
 
+        if args.complex: 
+            self.dtype = torch.complex64
+
         if args.reparametrize == 'nearest_neighbor':
             #Nearest neighbour approach
             self.mass = nn.Parameter(torch.tensor(mass), requires_grad=False)
@@ -26,12 +29,9 @@ class CorrelatedGaussian(nn.Module):
             
         if args.reparametrize == 'positive_definite':
             #Positive-definite approach
-            self.cholesky = nn.Linear(H*W, H*W, bias=False)
+            self.cholesky = nn.Linear(H*W, H*W, bias=False, dtype=self.dtype)
             #nn.init.zeros_(self.cholesky.bias)
             nn.init.eye_(self.cholesky.weight)
-
-            if args.complex:
-                self.cholesky.to(torch.complex64)
 
             parametrize.register_parametrization(self.cholesky, 'weight', LowerTriangular())
 
@@ -82,11 +82,8 @@ class CorrelatedGaussian(nn.Module):
         C = self.nvars[0]
         H = self.nvars[1]
         W = self.nvars[2]
-        
-        if args.complex:
-            prec = torch.zeros([H, W, H, W], device=args.device, dtype=torch.complex64)
-        else: 
-            prec = torch.zeros([H, W, H, W], device=args.device, dtype=torch.float32)
+
+        prec = torch.zeros([H, W, H, W], device=args.device, dtype=self.dtype)
         
         for l, (indexI, indexJ) in enumerate(zip(self.indexI, self.indexJ)):
             d = int(2**l)
@@ -164,7 +161,7 @@ class CorrelatedGaussian(nn.Module):
             cov = self.precision_matrix()
             cov = torch.linalg.inv(cov)
         if args.reparametrize == 'positive_definite':
-            cov = self.cholesky.weight @ self.cholesky.weight.T
+            cov = self.cholesky.weight @ self.cholesky.weight.T.conj()
         return cov
 
     def forward(self, x):
@@ -186,7 +183,6 @@ class CorrelatedGaussian(nn.Module):
         if args.reparametrize == 'positive_definite':
         #General reparametrization with positive definite covariance
             x = x.reshape((x.shape[0], -1))
-            if args.complex: self.cholesky.to(torch.complex64)
             chol_inv = torch.linalg.inv(self.cholesky.weight)
             x = x @ chol_inv.T
             _, logdet = torch.linalg.slogdet(chol_inv)
@@ -216,7 +212,6 @@ class CorrelatedGaussian(nn.Module):
         if args.reparametrize == 'positive_definite':
         #General reparametrization with positive definite covariance
             z = z.reshape((z.shape[0], -1))
-            if args.complex: self.cholesky.to(torch.complex64)
             self.cholesky(z)
             _, logdet = torch.linalg.slogdet(self.cholesky.weight)
 
