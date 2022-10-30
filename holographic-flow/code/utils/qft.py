@@ -1,10 +1,10 @@
 import torch
 
-def phi4_action(x, j, mu, lam, ext=0.):
+def phi4_action(x, k, mu, lam, ext=0.):
     '''
     dim(phi) = [batch, ch, x, y]
     '''
-    action = - j * (x.conj() * x.roll(1,dims=2) +
+    action = - k * (x.conj() * x.roll(1,dims=2) +
                     x.conj() * x.roll(1,dims=3))    
     action = action.sum(dim=(2,3))
 
