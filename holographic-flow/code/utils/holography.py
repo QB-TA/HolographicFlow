@@ -6,18 +6,38 @@ from args import args
 class HolographicDistance():
     def __init__(self, flow):
         self.flow = flow
+        self.bulk_config = self.flow.sample_bulk(args.batch_size)
+        self.qft_config = self.flow.sample(args.batch_size)[0]
+
+    def cov_matrix(self, i1, j1, i2, j2):
+        W = self.flow.reparametrize.nvars[2]
+        k1 = i1 * W + j1
+        k2 = i2 * W + j2
         cov = self.flow.reparametrize.covariance()
+        return cov[k1][k2]
+
 
     def mutual_info(self, i1, j1, i2, j2, cov):
         W = self.flow.reparametrize.nvars[2]
         k1 = i1 * W + j1
         k2 = i2 * W + j2
         info = - 0.5 * log(1 - ((cov[k1][k2] * cov[k2][k1]) / (cov[k1][k1] * cov[k2][k2])).real)
+        #info = - 0.5 * log(1 - (self.two_point_bulk(i1,j1,i2,j2) * self.two_point_bulk(i2,j2,i1,j1)).real /
+        #         (self.two_point_bulk(i1,j1,i1,j1) * self.two_point_bulk(i2,j2,i2,j2)).real)
         return info
 
     def geodesic_distance(self, i1, j1, i2, j2, cov, corr_length=1., offset=1.):
-        info = self.mutual_info(i1, j1, i2, j2, cov)
-        d = - corr_length * log(info / offset)
+        #corr = self.mutual_info(i1, j1, i2, j2, cov)
+        W = self.flow.reparametrize.nvars[2]
+        k1 = i1 * W + j1
+        k2 = i2 * W + j2
+
+        corr = cov[k1][k2].abs()
+
+        #corr = self.two_point_bulk(i1, j1, i2, j2).abs()
+        print(corr)
+        d = - corr_length * log(corr / offset)
+
         return d
 
     def decimator_distance(self, indexI1, indexJ1, indexI2, indexJ2, cov):
@@ -39,27 +59,43 @@ class HolographicDistance():
         if the variables belong to that layer.
         """
         cov = self.flow.reparametrize.covariance()
-        r_range = np.arange(1, args.L / 2**(layer+1))
+        W = self.flow.reparametrize.nvars[2]
+        offset = []
+        for i in range(args.L):
+            for j in range(args.L):
+                k = i * W + j
+                #offset.append(cov[k][k].abs().cpu())
+                #offset.append(self.two_point_bulk(i,j,i,j).abs().cpu())
+        offset = np.mean(offset)
+
+        
+        d_max = args.L / 2**(layer+1)
+        r_range = np.arange(3, d_max)
         ang_dist = []
 
         for r in r_range:
-            I1 = self.flow.indexI [2*layer+1] [0]
-            J1 = self.flow.indexJ [2*layer+1] [0]
-            I2 = self.flow.indexI [2*layer+1] [int(r * args.L / 2**(layer+1))]
-            J2 = self.flow.indexJ [2*layer+1] [int(r * args.L / 2**(layer+1))]
             dist = []
+            for s in r_range:
+                index1 = int(s%d_max * d_max)
+                index2 = (int(s%d_max * d_max) + int(r%d_max * d_max))%len(self.flow.indexI)
+                I1 = self.flow.indexI [2*layer+1] [index1]
+                J1 = self.flow.indexJ [2*layer+1] [index1]
+                I2 = self.flow.indexI [2*layer+1] [index2]
+                J2 = self.flow.indexJ [2*layer+1] [index2]
 
-            for k in range(args.kernel_size**2):
-                if not self.flow.reparametrize.is_in_layer(I1[k], J1[k], layer):
-                    I1 = np.delete(I1, k)
-                    J1 = np.delete(J1, k)
-                if not self.flow.reparametrize.is_in_layer(I2[k], J2[k], layer):
-                    I2 = np.delete(I2, k)
-                    J2 = np.delete(J2, k)
+                for k in range(args.kernel_size**2):
+                    if not self.flow.reparametrize.is_in_layer(I1[k], J1[k], layer):
+                        I1 = np.delete(I1, k)
+                        J1 = np.delete(J1, k)
+                    if not self.flow.reparametrize.is_in_layer(I2[k], J2[k], layer):
+                        I2 = np.delete(I2, k)
+                        J2 = np.delete(J2, k)
 
-            for m in range(len(I1)):
-                for n in range(len(I2)):
-                        dist.append(self.geodesic_distance(I1[m],J1[m], I2[n],J2[n], cov))
+                for m in range(len(I1)):
+                    for n in range(len(I2)):
+                            d = self.geodesic_distance(I1[m],J1[m], I2[n],J2[n], cov, offset=offset)
+                            if d > 0:
+                                dist.append(self.geodesic_distance(I1[m],J1[m], I2[n],J2[n], cov, offset=offset))
  
             ang_dist.append(np.mean(dist))
 
@@ -104,10 +140,14 @@ class HolographicDistance():
         return r_range, rad_dist
 
     def two_point(self, i1, j1, i2, j2):
-        qft_config = self.flow.sample(args.batch_size)[0]
-        two_point = qft_config[:, 0, i1, j1].conj() * qft_config[:, 0, i2, j2]
-        return two_point.mean().abs()
+        two_point = self.qft_config[:, 0, i1, j1] * self.qft_config[:, 0, i2, j2].conj()
+        return two_point.mean()
     
-    def one_point(self):
-        qft_config = self.flow.sample(args.L**2)[0]
-        return qft_config.mean().abs()
+    def two_point_bulk(self, i1, j1, i2, j2):
+        #TODO: high fluctation
+        two_point = self.bulk_config[:, 0, i1, j1] * self.bulk_config[:, 0, i2, j2].conj()
+        return two_point.mean()
+    
+    def one_point(self, i, j):
+        qft_config = self.flow.sample(args.batch_size)[0]
+        return qft_config.mean()
