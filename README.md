@@ -1,2 +1,2 @@
-# Geometric-DL-Holography
+# Holographic Flow Networks
 
